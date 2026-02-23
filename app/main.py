@@ -54,6 +54,13 @@ def maybe_capture_user_name(user_id: str, message: str) -> None:
     if not name:
         return
 
+    invalid_names = {
+        "什么", "什么名字", "谁", "你谁", "我", "你", "unknown", "name", "名字",
+        "what", "who", "my", "your"
+    }
+    if name.lower() in invalid_names or any(tok in name for tok in ["什么", "？", "?"]):
+        return
+
     item = memory.write(
         "profile",
         "name",
@@ -71,8 +78,20 @@ def recall_user_name(user_id: str) -> str | None:
     if not candidates:
         return None
 
-    user_specific = [h for h in candidates if (h.metadata or {}).get("user_id") == user_id]
-    pool = user_specific if user_specific else candidates
+    invalid_names = {"什么", "什么名字", "谁", "你谁", "我", "你", "unknown", "name", "名字", "what", "who"}
+
+    def _valid(v: str) -> bool:
+        t = (v or "").strip().lower()
+        if not t or t in invalid_names:
+            return False
+        if "什么" in t or "?" in t or "？" in t:
+            return False
+        return True
+
+    user_specific = [h for h in candidates if (h.metadata or {}).get("user_id") == user_id and _valid(h.value)]
+    global_valid = [h for h in candidates if _valid(h.value)]
+
+    pool = user_specific if user_specific else global_valid
     pool = sorted(pool, key=lambda x: x.created_at)
     return (pool[-1].value or "").strip() if pool else None
 
