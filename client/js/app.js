@@ -413,7 +413,7 @@ eraseMemoryBtn?.addEventListener('click', async () => {
   try {
     const res = await fetch('/memory/erase?confirm=true', { method: 'DELETE' });
     const data = await res.json();
-    if (data.ok) addMessage('system', `Memory erased ( items).`);
+    if (data.ok) addMessage('system', `Memory erased (${data.deleted ?? 0} items).`);
     else addMessage('system', data.error || 'Failed to erase memory');
   } catch (_err) {
     addMessage('system', 'Failed to erase memory');
