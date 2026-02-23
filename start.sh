@@ -44,6 +44,15 @@ done
 
 mkdir -p logs .run
 
+# Load .env without overriding already-exported variables.
+if [[ -f ".env" ]]; then
+  echo "[start] loading .env"
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
+
 export LLM_PROVIDER="${LLM_PROVIDER:-openai_compat}"
 export OPENAI_COMPAT_BASE_URL="${OPENAI_COMPAT_BASE_URL:-http://127.0.0.1:${VLLM_PORT}/v1}"
 export OPENAI_COMPAT_MODEL="${OPENAI_COMPAT_MODEL:-Qwen/Qwen3-14B-AWQ}"
