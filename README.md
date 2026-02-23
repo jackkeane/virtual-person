@@ -143,6 +143,30 @@ Common endpoints:
 - If vLLM is already running manually, `start.sh` should detect it.
 - If memory seems reset, check configured persistence path and write permissions.
 
+## Future Upgrade Plan
+
+Planned next-step upgrades:
+
+- **Original avatar pipeline**
+  - Use assets from `virtual-person-avatar-assets` to build a custom/original avatar.
+  - Replace the current default avatar after rigging, expression mapping, and QA.
+  - Keep compatibility with existing viseme + emotion blend pipeline.
+
+- **Fine-tuned LLM model**
+  - Move from general-purpose base model to a fine-tuned companion model.
+  - Target better persona consistency, long-context recall quality, and bilingual (zh/en) dialogue style.
+  - Keep fallback to baseline model for stability and A/B comparison.
+
+- **Memory system evolution**
+  - Add per-memory item deletion/edit UI.
+  - Add memory export/import and backup tooling.
+  - Add retrieval quality telemetry and rejection-reason metrics.
+
+- **Voice + latency improvements**
+  - Further optimize STT/TTS end-to-end latency.
+  - Improve streaming turn-taking and filler strategy.
+  - Add more robust handling for low-volume and mixed-language speech.
+
 ## License
 
 This project is licensed under the [MIT License](./LICENSE).
