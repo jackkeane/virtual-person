@@ -61,7 +61,20 @@ def maybe_capture_user_name(user_id: str, message: str) -> None:
         metadata={"source": "chat_auto_extract", "user_id": user_id, "field": "name"},
     )
     if not item.metadata.get("filtered"):
-        audit.log("memory_write_auto", f"profile:name={name}")
+        audit.log("memory_write_auto", f"profile:name={name}|user={user_id}")
+
+
+def recall_user_name(user_id: str) -> str | None:
+    """Get most relevant stored user name, preferring entries for this user_id."""
+    hits = memory.search("name")
+    candidates = [h for h in hits if h.key.lower() == "name"]
+    if not candidates:
+        return None
+
+    user_specific = [h for h in candidates if (h.metadata or {}).get("user_id") == user_id]
+    pool = user_specific if user_specific else candidates
+    pool = sorted(pool, key=lambda x: x.created_at)
+    return (pool[-1].value or "").strip() if pool else None
 
 
 app = FastAPI(title=config.app_name)
@@ -193,15 +206,14 @@ def _stream_chat_via_pipeline(user_id: str, message: str) -> Iterable[str]:
     maybe_capture_user_name(user_id, message)
 
     message_l = message.lower()
-    if "my name" in message_l:
-        name_hits = memory.search("name")
-        for item in name_hits:
-            if item.key.lower() == "name":
-                response = persona.enforce(f"Your name is {item.value}.")
-                sessions.add(user_id, "user", message)
-                sessions.add(user_id, "assistant", response)
-                yield response
-                return
+    if any(k in message_l for k in ["my name", "who am i", "do you remember my name", "我的名字", "我叫什么"]):
+        remembered_name = recall_user_name(user_id)
+        if remembered_name:
+            response = persona.enforce(f"Your name is {remembered_name}.")
+            sessions.add(user_id, "user", message)
+            sessions.add(user_id, "assistant", response)
+            yield response
+            return
 
     history = sessions.get(user_id, limit=10)
     system_prompt = persona.system_prompt()
@@ -321,15 +333,14 @@ def chat_turn(body: ChatTurnIn) -> dict:
     message_l = body.message.lower()
 
     # --- Fast deterministic answers ---
-    if "my name" in message_l:
-        name_hits = memory.search("name")
-        for item in name_hits:
-            if item.key.lower() == "name":
-                response = persona.enforce(f"Your name is {item.value}.")
-                sessions.add(body.user_id, "user", body.message)
-                sessions.add(body.user_id, "assistant", response)
-                audit.log("chat_turn", f"user={body.user_id}")
-                return {"ok": True, "response": response, "model": "rule-memory"}
+    if any(k in message_l for k in ["my name", "who am i", "do you remember my name", "我的名字", "我叫什么"]):
+        remembered_name = recall_user_name(body.user_id)
+        if remembered_name:
+            response = persona.enforce(f"Your name is {remembered_name}.")
+            sessions.add(body.user_id, "user", body.message)
+            sessions.add(body.user_id, "assistant", response)
+            audit.log("chat_turn", f"user={body.user_id}")
+            return {"ok": True, "response": response, "model": "rule-memory"}
 
     if any(k in message_l for k in ["your background", "about yourself", "your story", "who are you"]):
         response = persona.enforce(persona.short_background())
@@ -477,6 +488,23 @@ def memory_backends() -> dict:
         "neo4j": bool(memory.neo4j and memory.neo4j.available()),
         "fallback": "file-persisted",
         "persist_path": str(memory.persist_path),
+    }
+
+
+@app.get("/memory/debug")
+def memory_debug(user_id: str = "web_user") -> dict:
+    names = [
+        i.__dict__
+        for i in memory.search("name")
+        if i.key.lower() == "name"
+    ]
+    return {
+        "ok": True,
+        "persist_path": str(memory.persist_path),
+        "persist_exists": memory.persist_path.exists(),
+        "name_entries": names,
+        "recalled_name": recall_user_name(user_id),
+        "user_id": user_id,
     }
 
 
