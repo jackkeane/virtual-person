@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ani Avatar MVP</title>
+  <link rel="icon" href="/client/favicon.ico" type="image/png" />
+  <link rel="stylesheet" href="/client/css/style.css" />
+  <!-- 1. Cubism Core (must load first) -->
+  <script src="/client/lib/live2dcubismcore.min.js"></script>
+  <!-- 2. PixiJS v6 (compatible with pixi-live2d-display 0.4.x) -->
+  <script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
+  <!-- 3. pixi-live2d-display Cubism 4 support -->
+  <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="badge">AI Companion</div>
+      <h1>Ani</h1>
+      <div id="state-indicator">idle</div>
+    </header>
+
+    <nav class="top-tabs">
+      <button id="tabBtnChat" class="tab-btn active">💬 Chat</button>
+      <button id="tabBtnAvatar" class="tab-btn">🎛 Avatar Settings</button>
+    </nav>
+
+    <section class="avatar-panel">
+      <canvas id="avatarCanvas" width="520" height="480"></canvas>
+    </section>
+
+    <section id="tabChat" class="chat-panel tab-panel active">
+      <div id="messages"></div>
+      <div id="quickChips" class="quick-chips"></div>
+      <div class="chat-input-row sticky-composer">
+        <input id="chatInput" placeholder="Type a message… (Enter to send)" />
+        <button id="sendBtn">Send</button>
+        <button id="micModeBtn">Mode: Manual</button>
+        <button id="micBtn">🎤 Talk</button>
+      </div>
+    </section>
+
+    <section id="tabAvatar" class="chat-panel tab-panel">
+      <div class="motion-control-row">
+        <label for="bodyMotionScale">Body Motion</label>
+        <input id="bodyMotionScale" type="range" min="0.6" max="1.4" step="0.1" value="1.0" />
+        <span id="bodyMotionScaleValue">1.0x</span>
+
+        <label for="speakingMotionPreset">Speaking Motion</label>
+        <select id="speakingMotionPreset">
+          <option value="none" selected>None</option>
+          <option value="tapbody">Hold Hands (TapBody)</option>
+          <option value="idle-1">Idle m01</option>
+          <option value="idle-2">Idle m02</option>
+          <option value="idle-3">Idle m03</option>
+        </select>
+
+        <label for="emotionMotionToggle" class="inline-check">
+          <input id="emotionMotionToggle" type="checkbox" checked />
+          Emotion mapping
+        </label>
+
+        <label for="motionTuningPreset">Motion Feel</label>
+        <select id="motionTuningPreset">
+          <option value="subtle">Subtle</option>
+          <option value="balanced" selected>Balanced</option>
+          <option value="expressive">Expressive</option>
+        </select>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="/client/js/app.js"></script>
+</body>
+</html>
