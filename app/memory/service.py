@@ -26,7 +26,11 @@ class MemoryItem:
 class MemoryService:
     def __init__(self, persist_path: str | None = None) -> None:
         self._items: list[MemoryItem] = []
-        self.persist_path = Path(persist_path or os.getenv("MEMORY_PERSIST_PATH", "./memory_store.json"))
+
+        # Use a stable absolute default path so restarts from different cwd don't "lose" memory.
+        default_persist = Path(__file__).resolve().parents[2] / "memory_store.json"
+        self.persist_path = Path(persist_path or os.getenv("MEMORY_PERSIST_PATH", str(default_persist)))
+
         self.postgres = self._init_postgres()
         self.neo4j = self._init_neo4j()
         self._load_persisted()
