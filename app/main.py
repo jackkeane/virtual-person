@@ -33,6 +33,37 @@ def strip_thinking(text: str) -> str:
     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
 
+def maybe_capture_user_name(user_id: str, message: str) -> None:
+    """Best-effort name capture from natural user utterances."""
+    patterns = [
+        r"\bmy name is\s+([A-Za-z][A-Za-z\- '\.]{0,39})",
+        r"\bi am\s+([A-Za-z][A-Za-z\- '\.]{0,39})",
+        r"\bi'm\s+([A-Za-z][A-Za-z\- '\.]{0,39})",
+        r"\bcall me\s+([A-Za-z][A-Za-z\- '\.]{0,39})",
+        r"我是\s*([\u4e00-\u9fffA-Za-z0-9·•]{1,20})",
+        r"我叫\s*([\u4e00-\u9fffA-Za-z0-9·•]{1,20})",
+    ]
+
+    name: str | None = None
+    for p in patterns:
+        m = re.search(p, message, flags=re.IGNORECASE)
+        if m:
+            name = (m.group(1) or "").strip("\"'，。,.!！?？:： ")
+            break
+
+    if not name:
+        return
+
+    item = memory.write(
+        "profile",
+        "name",
+        name,
+        metadata={"source": "chat_auto_extract", "user_id": user_id, "field": "name"},
+    )
+    if not item.metadata.get("filtered"):
+        audit.log("memory_write_auto", f"profile:name={name}")
+
+
 app = FastAPI(title=config.app_name)
 
 persona = PersonaService(
@@ -159,6 +190,8 @@ def _stream_chat_via_pipeline(user_id: str, message: str) -> Iterable[str]:
         yield refusal
         return
 
+    maybe_capture_user_name(user_id, message)
+
     message_l = message.lower()
     if "my name" in message_l:
         name_hits = memory.search("name")
@@ -282,6 +315,8 @@ def chat_turn(body: ChatTurnIn) -> dict:
     if not safe:
         audit.log("safety_refusal", body.message)
         return {"ok": False, "response": refusal}
+
+    maybe_capture_user_name(body.user_id, body.message)
 
     message_l = body.message.lower()
 
