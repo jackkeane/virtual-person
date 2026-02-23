@@ -1,91 +1,72 @@
-# Memory System (Current State)
+# Memory System
 
-This document describes the memory stack in **Virtual Person (Ani) Phase 1** after Day 6 implementation and follow-up fixes.
+This document explains how memory works in **Virtual Person (Ani) Phase 1**, including the Day 6 upgrades.
 
 ## Goals
 
-- Keep important user facts across restarts
-- Minimize noisy/incorrect memory writes
-- Improve retrieval relevance and determinism
-- Support explicit user memory erase
-- Keep DB and fallback persistence both reliable
+- Preserve important user facts across restarts
+- Reduce noisy or duplicated memory writes
+- Improve retrieval relevance in real conversations
+- Give users explicit erase control from UI
 
-## Active Architecture
+## Architecture
 
-Memory is managed by `app/memory/service.py` with layered storage:
+Memory is served by `app/memory/service.py` and can use:
 
-1. **PostgreSQL** (when `MEMORY_POSTGRES_DSN` is configured and reachable)
-2. **Neo4j** (when `MEMORY_NEO4J_*` env vars are configured and reachable)
-3. **File-backed fallback** at a stable path:
-   - `virtual-person-phase1/memory_store.json`
+1. **PostgreSQL store** (if configured)
+2. **Neo4j store** (if configured)
+3. **Durable file-backed fallback** (`memory_store.json`) when DBs are unavailable
 
-The fallback remains available even if DB backends are down.
+This ensures memory continuity even when app and vLLM are restarted.
 
-## Day 6 + Follow-up Improvements
+## Day 6 Improvements
 
-### A) Durable persistence
+### 1) Durable persistence
 
-- Stable absolute default path for fallback memory file
-- Atomic flush strategy prevents partial writes
+- Added persistent fallback storage (file-backed)
+- Uses atomic writes (`.tmp` + replace) to avoid partial/corrupt writes
 
-### B) Memory curation
+### 2) Better write curation
 
-- Noise filtering for low-signal writes
-- Duplicate suppression by normalized comparison
-- Metadata passthrough for provenance/context
+- Drops low-signal/noisy entries
+- Prevents near-duplicate writes via normalized matching
+- Supports memory metadata for richer context
 
-### C) Retrieval improvements
+### 3) Better retrieval relevance
 
-- Better ranking (text relevance + recency + weighting)
-- User-scoped name recall logic to avoid cross-user contamination
+Ranking combines:
 
-### D) Name memory reliability
+- token overlap
+- exact key match bonus
+- recency bonus
+- kind/importance weighting
 
-- Auto-capture names from natural chat forms:
-  - `my name is ...`
-  - `I am ...` / `I'm ...`
-  - `call me ...`
-  - `我是 ...` / `我叫 ...`
-- Invalid extraction guard blocks noisy pseudo-names such as:
-  - `什么`, `什么名字`, etc.
+### 4) Erase support
 
-### E) User controls
+- Added backend erase-all path with explicit confirmation
+- UI includes an erase button + confirm flow
 
-- Erase all memory endpoint with confirmation
-- UI button + confirmation in Avatar Settings
+### 5) Restart-safe identity memory
 
-### F) Runtime debugability
+User identity facts are persisted durably and verified by tests to survive process restarts.
 
-- Added `GET /memory/debug?user_id=...` for quick diagnosis:
-  - active persist path
-  - file existence
-  - stored `name` entries
-  - currently recalled name for user
+## API Notes
 
-## Operational Behavior
+Typical endpoints:
 
-- `start.sh` loads `.env`
-- `.env_example` provided for reproducible setup
-- With correct DSN/credentials, `/memory/backends` should report:
-  - `postgres: true`
-  - `neo4j: true`
-
-## Verified Restart Behavior
-
-Live check completed:
-
-- DB backends true before restart
-- Test memory written
-- `./stop.sh` then `./start.sh --dev`
-- DB backends still true after restart
-- Test memory still retrievable
-
-This confirms restart persistence works in the current configured setup.
-
-## Key Endpoints
-
-- `POST /memory/write`
 - `GET /memory/search?query=...`
+- `POST /memory/write`
 - `DELETE /memory/erase?confirm=true`
-- `GET /memory/backends`
-- `GET /memory/debug?user_id=web_user`
+
+## Operational Notes
+
+- Back up `memory_store.json` if you rely on file-backed persistence
+- For production workloads, prefer database backends + periodic backup
+- Keep erase actions explicit and intentional
+
+## Test Coverage (relevant)
+
+Memory behavior is validated by tests including restart-safety and service-level checks in:
+
+- `tests/test_memory_service.py`
+- `tests/test_core.py`
