@@ -95,7 +95,7 @@ Terminal chat helper:
 ~/anaconda3/bin/conda run -n py312 python chat.py
 ```
 
-## Day 6 Features (Implemented)
+## Recent Changes
 
 ### Memory Improvements
 
