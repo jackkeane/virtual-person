@@ -1,0 +1,8 @@
+[tool.pytest.ini_options]
+# Put the repo root on sys.path so `import app` resolves under a bare `pytest`
+# invocation in CI (tests/ is not a package, so pytest would otherwise only add
+# tests/ to the path). Equivalent to running `python -m pytest` locally.
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
