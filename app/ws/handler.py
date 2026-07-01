@@ -12,7 +12,16 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from app.avatar.emotion_mapper import EmotionMapper
 from app.avatar.state_machine import ConversationStateMachine
+from app.config import config
 from app.llm.streaming import SentenceChunker
+from app.observability.metrics import (
+    inc_rate_limited,
+    inc_turn,
+    observe_stt,
+    observe_ttfa,
+    observe_tts,
+    observe_vad,
+)
 from app.voice.lipsync import build_viseme_timeline
 from app.voice.stt_service import BaseSTTService
 from app.voice.tts_service import BaseTTSService, FallbackTTSService, FillerAudioService
@@ -49,6 +58,7 @@ class AvatarWebSocketHandler:
         stream_chat_func: Callable[[str, str], Iterable[str]] | None = None,
         vad_service: BaseVADService | None = None,
         filler_service: FillerAudioService | None = None,
+        rate_limiter: object | None = None,
     ) -> None:
         self.state_machine = state_machine
         self.emotion_mapper = emotion_mapper
@@ -58,6 +68,9 @@ class AvatarWebSocketHandler:
         self.stream_chat_func = stream_chat_func
         self.vad_service = vad_service or SileroVADService()
         self.filler_service = filler_service
+        # Optional per-user rate limiter (duck-typed: .allow(user_id)->(bool,float)).
+        # Existing handler tests construct WITHOUT it -> no-op. main.py wires it.
+        self.rate_limiter = rate_limiter
 
         # Guard against overlapping turns and explicitly reset between turns.
         self._turn_lock = asyncio.Lock()
@@ -129,6 +142,7 @@ class AvatarWebSocketHandler:
                     vad_start = time.monotonic()
                     segments = await loop.run_in_executor(_executor, self.vad_service.detect, audio_chunk, 16000)
                     vad_ms = int((time.monotonic() - vad_start) * 1000)
+                    observe_vad(vad_ms / 1000)
                     total_speech_ms = sum(seg.duration_ms for seg in segments)
                     has_speech = bool(segments)
                     print(f"[WS] VAD: speech={has_speech}, segments={len(segments)}, duration_ms={total_speech_ms}")
@@ -145,6 +159,7 @@ class AvatarWebSocketHandler:
                     stt_language = str(payload.get("stt_language", "auto") or "auto")
                     text = await loop.run_in_executor(_executor, self.stt_service.transcribe, audio_chunk, stt_language)
                     stt_ms = int((time.monotonic() - stt_start) * 1000)
+                    observe_stt(stt_ms / 1000)
                     total_ms = int((time.monotonic() - pipeline_start) * 1000)
                     print(f"[WS] Audio pipeline: vad_ms={vad_ms}, stt_ms={stt_ms}, total_ms={total_ms}")
                     await websocket.send_json({"type": "status", "text": ""})
@@ -172,6 +187,26 @@ class AvatarWebSocketHandler:
             return
 
     async def _process_text_chat(self, websocket: WebSocket, text: str, user_id: str) -> None:
+        # --- Per-user rate limiting ---
+        # Inert unless a limiter is wired (main.py) AND enabled. The blocking
+        # Redis call is offloaded to the threadpool so the event loop is never
+        # blocked; without Redis the limiter fails open (allow) instantly.
+        if self.rate_limiter is not None and config.rate_limit_enabled:
+            loop = asyncio.get_event_loop()
+            allowed, _retry_after = await loop.run_in_executor(
+                _executor, self.rate_limiter.allow, user_id
+            )
+            if not allowed:
+                inc_rate_limited()
+                await websocket.send_json({
+                    "type": "chat",
+                    "role": "assistant",
+                    "text": "我有点忙，稍等一下再说好吗？",
+                    "final": True,
+                })
+                await self._safe_send_state(websocket, "idle")
+                return
+
         async with self._turn_lock:
             self._turn_in_progress = True
             try:
@@ -184,7 +219,9 @@ class AvatarWebSocketHandler:
                     response = await self._get_response_non_stream(websocket, user_id, text)
                     await self._safe_send_state(websocket, "speaking")
                     loop = asyncio.get_event_loop()
+                    tts_start = time.monotonic()
                     audio_bytes, phonemes = await loop.run_in_executor(_executor, self.tts_service.synthesize, response)
+                    observe_tts(time.monotonic() - tts_start)
                     visemes = build_viseme_timeline(phonemes)
                     await self._send_audio_response(websocket, audio_bytes, visemes)
 
@@ -199,6 +236,8 @@ class AvatarWebSocketHandler:
                 await websocket.send_json({"type": "chat", "role": "assistant", "text": response, "final": True})
                 self._last_response_text = response
                 await self._safe_send_state(websocket, "idle")
+                # One full turn completed (text-chat or post-STT voice turn).
+                inc_turn()
             finally:
                 # Explicitly reset turn tracking state after each full turn.
                 self._turn_in_progress = False
@@ -272,7 +311,9 @@ class AvatarWebSocketHandler:
                     tts_fn = self.tts_service.synthesize
                     if speed_mode == "fast" and not first_chunk_done and fallback_tts is not None:
                         tts_fn = fallback_tts.synthesize
+                    tts_start = time.monotonic()
                     audio_bytes, phonemes = await loop.run_in_executor(_executor, tts_fn, sentence)
+                    observe_tts(time.monotonic() - tts_start)
                     first_chunk_done = True
                 except (ValueError, RuntimeError):
                     # Empty text after cleanup or TTS failure — skip this chunk silently.
@@ -289,6 +330,7 @@ class AvatarWebSocketHandler:
                     sent_first_audio = True
                     ttfa_ms = int((time.monotonic() * 1000) - turn_start_ms)
                     print(f"[WS] TTFA: {ttfa_ms}ms")
+                    observe_ttfa(ttfa_ms / 1000)
                     await self._safe_send_state(websocket, "speaking")
                 await self._send_audio_response(websocket, audio_bytes, visemes)
 

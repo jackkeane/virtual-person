@@ -2,6 +2,10 @@ import os
 from pydantic import BaseModel
 
 
+def _truthy(name: str, default: str) -> bool:
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
+
+
 class AppConfig(BaseModel):
     app_name: str = "Virtual Person Phase1"
     ws_enabled: bool = os.getenv("WS_ENABLED", "true").lower() in ("true", "1", "yes")
@@ -50,6 +54,28 @@ class AppConfig(BaseModel):
 
     # Audit log persistence (JSONL file, empty = in-memory only)
     audit_log_path: str = os.getenv("AUDIT_LOG_PATH", "./audit.jsonl")
+
+    # --- Redis + observability (Feature 3) ---
+    # All Redis-backed behavior is gated on redis_url being non-empty AND Redis
+    # reachable (see app/infra/redis_client.py). The *_enabled flags default true
+    # but are INERT without REDIS_URL: unset URL -> in-memory sessions, no TTS
+    # cache, allow-all rate limit (identical to pre-Feature-3 behavior).
+    redis_url: str = os.getenv("REDIS_URL", "")
+    # Session storage backend: auto | memory | redis ("auto" = redis iff available).
+    session_backend: str = os.getenv("SESSION_BACKEND", "auto")
+    # TTL (seconds) refreshed on every session write so idle-user keys evaporate
+    # instead of accumulating forever for every distinct (attacker-controllable)
+    # user_id. Mirrors the bounded growth of the vp:rl:/vp:tts: seams. Default 7d.
+    session_ttl: int = int(os.getenv("SESSION_TTL", "604800"))
+
+    metrics_enabled: bool = _truthy("METRICS_ENABLED", "1")
+
+    tts_cache_enabled: bool = _truthy("TTS_CACHE_ENABLED", "1")
+    tts_cache_ttl: int = int(os.getenv("TTS_CACHE_TTL", "86400"))
+
+    rate_limit_enabled: bool = _truthy("RATE_LIMIT_ENABLED", "1")
+    rate_limit_capacity: int = int(os.getenv("RATE_LIMIT_CAPACITY", "20"))
+    rate_limit_refill_per_sec: float = float(os.getenv("RATE_LIMIT_REFILL_PER_SEC", "1.0"))
 
 
 config = AppConfig()

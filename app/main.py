@@ -4,7 +4,7 @@ import os
 import base64
 from datetime import datetime
 from typing import Iterable
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Response, WebSocket
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -26,6 +26,8 @@ from app.voice.tts_service import FillerAudioService, get_tts_service
 from app.voice.stt_service import get_stt_service
 from app.voice.lipsync import build_viseme_timeline
 from app.ws.handler import AvatarWebSocketHandler
+from app.infra.rate_limit import TokenBucketLimiter
+from app.observability import metrics as obs_metrics
 
 
 def strip_thinking(text: str) -> str:
@@ -109,6 +111,12 @@ memory = MemoryService()
 safety = SafetyService()
 audit = AuditLogger(persist_path=config.audit_log_path if config.audit_log_path else None)
 sessions = SessionService(max_turns=20)
+# Per-user token-bucket rate limiter. Inert (allow-all) unless REDIS_URL is set
+# AND Redis is reachable — see app/infra/rate_limit.py.
+limiter = TokenBucketLimiter(
+    capacity=config.rate_limit_capacity,
+    refill_per_sec=config.rate_limit_refill_per_sec,
+)
 proactivity = ProactivityService(
     quiet_start=config.quiet_hours_start,
     quiet_end=config.quiet_hours_end,
@@ -205,7 +213,10 @@ def _tool_call_loop(user_message: str, memory_context: str, history: list[dict])
 
 
 def _chat_via_pipeline(user_id: str, message: str) -> dict:
-    return chat_turn(ChatTurnIn(user_id=user_id, message=message))
+    # Internal entrypoint (used by the WS path, which already rate-limits the
+    # turn in AvatarWebSocketHandler._process_text_chat). Call the shared core
+    # directly so the endpoint-level limiter does NOT consume a second token.
+    return _run_chat_turn(ChatTurnIn(user_id=user_id, message=message))
 
 
 def _stream_chat_via_pipeline(user_id: str, message: str) -> Iterable[str]:
@@ -269,6 +280,7 @@ try:
         chat_func=_chat_via_pipeline,
         stream_chat_func=_stream_chat_via_pipeline,
         filler_service=filler_service,
+        rate_limiter=limiter,
     )
 except TypeError:
     # Backward-compat path if an older handler signature is loaded.
@@ -339,8 +351,38 @@ def health() -> dict:
     return {"status": "ok", "service": config.app_name, "phase": 2}
 
 
+@app.get("/metrics")
+def metrics() -> Response:
+    """Prometheus exposition endpoint. Returns 404 when metrics are disabled."""
+    if not config.metrics_enabled:
+        return Response(status_code=404)
+    body, content_type = obs_metrics.render()
+    return Response(content=body, media_type=content_type)
+
+
 @app.post("/chat/turn")
 def chat_turn(body: ChatTurnIn) -> dict:
+    # --- Per-user rate limiting (no-op unless Redis is configured + reachable) ---
+    # Enforced ONLY at this public HTTP boundary. Internal callers reach the chat
+    # pipeline via _run_chat_turn (e.g. the WS path, which already consumes a
+    # token in app/ws/handler.py), so a single turn never double-decrements the
+    # bucket regardless of transport / streaming / provider configuration.
+    if config.rate_limit_enabled:
+        allowed, retry_after = limiter.allow(body.user_id)
+        if not allowed:
+            obs_metrics.inc_rate_limited()
+            return {"ok": False, "error": "rate_limited", "retry_after": retry_after}
+
+    return _run_chat_turn(body)
+
+
+def _run_chat_turn(body: ChatTurnIn) -> dict:
+    """Core chat pipeline shared by the /chat/turn endpoint and internal callers.
+
+    Rate limiting lives in the ``chat_turn`` endpoint wrapper, NOT here, so the
+    WS pipeline (``_chat_via_pipeline`` -> here) does not re-consume a token that
+    ``AvatarWebSocketHandler._process_text_chat`` already consumed for the turn.
+    """
     # --- Input safety check ---
     safe, refusal = safety.check(body.message)
     if not safe:

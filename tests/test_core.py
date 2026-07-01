@@ -259,3 +259,33 @@ def test_output_safety_check():
     assert ok is False
     ok2, _ = s.check_output("Here is how to bake a cake")
     assert ok2 is True
+
+
+# --- NEW: rate limiter is consumed once per turn, not once per pipeline hop ---
+
+def test_internal_pipeline_does_not_double_consume_rate_limit(monkeypatch):
+    """The WS internal entrypoint (_chat_via_pipeline) must NOT consume an
+    endpoint-level rate-limit token: the WS handler already rate-limits the turn,
+    so routing through the shared core avoids the double-decrement bug. The public
+    /chat/turn endpoint still consumes exactly one token per call."""
+    import app.main as main
+
+    calls = {"n": 0}
+
+    class _CountingLimiter:
+        def allow(self, user_id):
+            calls["n"] += 1
+            return (True, 0.0)
+
+    # Isolate the rate-limit accounting from the LLM/safety/memory pipeline.
+    monkeypatch.setattr(main, "limiter", _CountingLimiter())
+    monkeypatch.setattr(main.config, "rate_limit_enabled", True)
+    monkeypatch.setattr(main, "_run_chat_turn", lambda body: {"ok": True, "response": "x"})
+
+    # Internal path (used by the streaming/non-stream WS fallback) bypasses the gate.
+    main._chat_via_pipeline("rl_user", "hello")
+    assert calls["n"] == 0
+
+    # Public HTTP boundary still enforces exactly one decrement per turn.
+    main.chat_turn(main.ChatTurnIn(user_id="rl_user", message="hello"))
+    assert calls["n"] == 1

@@ -10,6 +10,7 @@ import wave
 from dataclasses import dataclass
 
 from app.config import config
+from app.infra.redis_client import redis_available
 
 
 @dataclass
@@ -365,7 +366,7 @@ def _detect_lang(text: str) -> str:
     return "en"
 
 
-def get_tts_service() -> BaseTTSService:
+def _build_tts_service() -> BaseTTSService:
     provider = config.tts_provider.lower()
 
     if provider in {"fishaudio", "fish"}:
@@ -378,6 +379,21 @@ def get_tts_service() -> BaseTTSService:
         return ChainedTTSService([CosyVoiceTTSService(), FishAudioTTSService(), FallbackTTSService()])
 
     return FallbackTTSService()
+
+
+def get_tts_service() -> BaseTTSService:
+    service = _build_tts_service()
+
+    # Redis-backed response cache (Feature 3, worker 5). Inert without the flag
+    # or a live Redis client: with REDIS_URL unset this returns the unwrapped
+    # service, so behavior is identical to pre-Feature-3. Imported lazily to
+    # avoid a circular import (tts_cache imports BaseTTSService from this module).
+    if config.tts_cache_enabled and redis_available():
+        from app.voice.tts_cache import CachedTTSService
+
+        return CachedTTSService(service)
+
+    return service
 
 
 _LETTER_TO_PHONEME = {
