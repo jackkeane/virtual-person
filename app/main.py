@@ -2,6 +2,7 @@ import json
 import re
 import os
 import base64
+import time
 from datetime import datetime
 from typing import Iterable
 from fastapi import FastAPI, Response, WebSocket
@@ -373,7 +374,14 @@ def chat_turn(body: ChatTurnIn) -> dict:
             obs_metrics.inc_rate_limited()
             return {"ok": False, "error": "rate_limited", "retry_after": retry_after}
 
-    return _run_chat_turn(body)
+    # Instrument the turn at the HTTP boundary (the WS voice path emits these
+    # from app/ws/handler.py). Time + count every processed /chat/turn so a plain
+    # HTTP / curl demo moves /metrics, not only the voice path.
+    started = time.perf_counter()
+    result = _run_chat_turn(body)
+    obs_metrics.observe_chat(time.perf_counter() - started)
+    obs_metrics.inc_turn()
+    return result
 
 
 def _run_chat_turn(body: ChatTurnIn) -> dict:

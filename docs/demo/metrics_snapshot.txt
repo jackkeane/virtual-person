@@ -1,0 +1,146 @@
+# HELP python_gc_objects_collected_total Objects collected during gc
+# TYPE python_gc_objects_collected_total counter
+python_gc_objects_collected_total{generation="0"} 566.0
+python_gc_objects_collected_total{generation="1"} 138.0
+python_gc_objects_collected_total{generation="2"} 40.0
+# HELP python_gc_objects_uncollectable_total Uncollectable objects found during GC
+# TYPE python_gc_objects_uncollectable_total counter
+python_gc_objects_uncollectable_total{generation="0"} 0.0
+python_gc_objects_uncollectable_total{generation="1"} 0.0
+python_gc_objects_uncollectable_total{generation="2"} 0.0
+# HELP python_gc_collections_total Number of times this generation was collected
+# TYPE python_gc_collections_total counter
+python_gc_collections_total{generation="0"} 169.0
+python_gc_collections_total{generation="1"} 15.0
+python_gc_collections_total{generation="2"} 1.0
+# HELP python_info Python platform information
+# TYPE python_info gauge
+python_info{implementation="CPython",major="3",minor="12",patchlevel="2",version="3.12.2"} 1.0
+# HELP process_virtual_memory_bytes Virtual memory size in bytes.
+# TYPE process_virtual_memory_bytes gauge
+process_virtual_memory_bytes 3.33172736e+08
+# HELP process_resident_memory_bytes Resident memory size in bytes.
+# TYPE process_resident_memory_bytes gauge
+process_resident_memory_bytes 7.602176e+07
+# HELP process_start_time_seconds Start time of the process since unix epoch in seconds.
+# TYPE process_start_time_seconds gauge
+process_start_time_seconds 1.78286967147e+09
+# HELP process_cpu_seconds_total Total user and system CPU time spent in seconds.
+# TYPE process_cpu_seconds_total counter
+process_cpu_seconds_total 0.39999999999999997
+# HELP process_open_fds Number of open file descriptors.
+# TYPE process_open_fds gauge
+process_open_fds 20.0
+# HELP process_max_fds Maximum number of open file descriptors.
+# TYPE process_max_fds gauge
+process_max_fds 1.048576e+06
+# HELP vp_vad_seconds Voice-activity-detection latency in seconds.
+# TYPE vp_vad_seconds histogram
+vp_vad_seconds_bucket{le="0.01"} 0.0
+vp_vad_seconds_bucket{le="0.025"} 0.0
+vp_vad_seconds_bucket{le="0.05"} 0.0
+vp_vad_seconds_bucket{le="0.1"} 0.0
+vp_vad_seconds_bucket{le="0.25"} 0.0
+vp_vad_seconds_bucket{le="0.5"} 0.0
+vp_vad_seconds_bucket{le="1.0"} 0.0
+vp_vad_seconds_bucket{le="2.5"} 0.0
+vp_vad_seconds_bucket{le="5.0"} 0.0
+vp_vad_seconds_bucket{le="10.0"} 0.0
+vp_vad_seconds_bucket{le="+Inf"} 0.0
+vp_vad_seconds_count 0.0
+vp_vad_seconds_sum 0.0
+# HELP vp_vad_seconds_created Voice-activity-detection latency in seconds.
+# TYPE vp_vad_seconds_created gauge
+vp_vad_seconds_created 1.7828696725706472e+09
+# HELP vp_stt_seconds Speech-to-text latency in seconds.
+# TYPE vp_stt_seconds histogram
+vp_stt_seconds_bucket{le="0.01"} 0.0
+vp_stt_seconds_bucket{le="0.025"} 0.0
+vp_stt_seconds_bucket{le="0.05"} 0.0
+vp_stt_seconds_bucket{le="0.1"} 0.0
+vp_stt_seconds_bucket{le="0.25"} 0.0
+vp_stt_seconds_bucket{le="0.5"} 0.0
+vp_stt_seconds_bucket{le="1.0"} 0.0
+vp_stt_seconds_bucket{le="2.5"} 0.0
+vp_stt_seconds_bucket{le="5.0"} 0.0
+vp_stt_seconds_bucket{le="10.0"} 0.0
+vp_stt_seconds_bucket{le="+Inf"} 0.0
+vp_stt_seconds_count 0.0
+vp_stt_seconds_sum 0.0
+# HELP vp_stt_seconds_created Speech-to-text latency in seconds.
+# TYPE vp_stt_seconds_created gauge
+vp_stt_seconds_created 1.7828696725706756e+09
+# HELP vp_ttfa_seconds Time-to-first-audio per turn in seconds.
+# TYPE vp_ttfa_seconds histogram
+vp_ttfa_seconds_bucket{le="0.01"} 0.0
+vp_ttfa_seconds_bucket{le="0.025"} 0.0
+vp_ttfa_seconds_bucket{le="0.05"} 0.0
+vp_ttfa_seconds_bucket{le="0.1"} 0.0
+vp_ttfa_seconds_bucket{le="0.25"} 0.0
+vp_ttfa_seconds_bucket{le="0.5"} 0.0
+vp_ttfa_seconds_bucket{le="1.0"} 0.0
+vp_ttfa_seconds_bucket{le="2.5"} 0.0
+vp_ttfa_seconds_bucket{le="5.0"} 0.0
+vp_ttfa_seconds_bucket{le="10.0"} 0.0
+vp_ttfa_seconds_bucket{le="+Inf"} 0.0
+vp_ttfa_seconds_count 0.0
+vp_ttfa_seconds_sum 0.0
+# HELP vp_ttfa_seconds_created Time-to-first-audio per turn in seconds.
+# TYPE vp_ttfa_seconds_created gauge
+vp_ttfa_seconds_created 1.7828696725706897e+09
+# HELP vp_tts_seconds Text-to-speech synthesis latency in seconds.
+# TYPE vp_tts_seconds histogram
+vp_tts_seconds_bucket{le="0.01"} 0.0
+vp_tts_seconds_bucket{le="0.025"} 0.0
+vp_tts_seconds_bucket{le="0.05"} 0.0
+vp_tts_seconds_bucket{le="0.1"} 0.0
+vp_tts_seconds_bucket{le="0.25"} 0.0
+vp_tts_seconds_bucket{le="0.5"} 0.0
+vp_tts_seconds_bucket{le="1.0"} 0.0
+vp_tts_seconds_bucket{le="2.5"} 0.0
+vp_tts_seconds_bucket{le="5.0"} 0.0
+vp_tts_seconds_bucket{le="10.0"} 0.0
+vp_tts_seconds_bucket{le="+Inf"} 0.0
+vp_tts_seconds_count 0.0
+vp_tts_seconds_sum 0.0
+# HELP vp_tts_seconds_created Text-to-speech synthesis latency in seconds.
+# TYPE vp_tts_seconds_created gauge
+vp_tts_seconds_created 1.7828696725707e+09
+# HELP vp_chat_seconds End-to-end /chat/turn (text) latency in seconds.
+# TYPE vp_chat_seconds histogram
+vp_chat_seconds_bucket{le="0.01"} 8.0
+vp_chat_seconds_bucket{le="0.025"} 8.0
+vp_chat_seconds_bucket{le="0.05"} 8.0
+vp_chat_seconds_bucket{le="0.1"} 8.0
+vp_chat_seconds_bucket{le="0.25"} 8.0
+vp_chat_seconds_bucket{le="0.5"} 8.0
+vp_chat_seconds_bucket{le="1.0"} 8.0
+vp_chat_seconds_bucket{le="2.5"} 8.0
+vp_chat_seconds_bucket{le="5.0"} 8.0
+vp_chat_seconds_bucket{le="10.0"} 8.0
+vp_chat_seconds_bucket{le="+Inf"} 8.0
+vp_chat_seconds_count 8.0
+vp_chat_seconds_sum 0.015708629999608092
+# HELP vp_chat_seconds_created End-to-end /chat/turn (text) latency in seconds.
+# TYPE vp_chat_seconds_created gauge
+vp_chat_seconds_created 1.7828696725711231e+09
+# HELP vp_turns_total Completed conversation turns.
+# TYPE vp_turns_total counter
+vp_turns_total 8.0
+# HELP vp_turns_created Completed conversation turns.
+# TYPE vp_turns_created gauge
+vp_turns_created 1.7828696725711417e+09
+# HELP vp_tts_cache_total TTS cache lookups, labeled by result.
+# TYPE vp_tts_cache_total counter
+vp_tts_cache_total{result="miss"} 11.0
+vp_tts_cache_total{result="hit"} 4.0
+# HELP vp_tts_cache_created TTS cache lookups, labeled by result.
+# TYPE vp_tts_cache_created gauge
+vp_tts_cache_created{result="miss"} 1.7828696733772428e+09
+vp_tts_cache_created{result="hit"} 1.7828696876371052e+09
+# HELP vp_rate_limited_total Requests rejected by the rate limiter.
+# TYPE vp_rate_limited_total counter
+vp_rate_limited_total 5.0
+# HELP vp_rate_limited_created Requests rejected by the rate limiter.
+# TYPE vp_rate_limited_created gauge
+vp_rate_limited_created 1.782869672571153e+09

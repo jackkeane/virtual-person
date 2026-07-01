@@ -103,3 +103,29 @@ def test_metrics_disabled_returns_404():
         config.metrics_enabled = prev
     # Re-enabled afterwards.
     assert client.get("/metrics").status_code == 200
+
+
+def test_http_chat_turn_emits_turn_and_latency(monkeypatch):
+    """POST /chat/turn (the public HTTP boundary) must move the turn counter and
+    the chat-latency histogram. Regression for the gap where only the WS voice
+    path was instrumented, so an HTTP / curl demo saw a flat /metrics. The real
+    LLM pipeline and the limiter are stubbed so this asserts the wrapper's
+    instrumentation, not downstream behavior.
+    """
+    import app.main as main
+
+    monkeypatch.setattr(main.config, "rate_limit_enabled", False)
+    monkeypatch.setattr(main, "_run_chat_turn", lambda body: {"ok": True, "response": "hi"})
+
+    before = client.get("/metrics").text
+    b_turns = _sample(before, "vp_turns_total")
+    b_count = _sample(before, "vp_chat_seconds_count")
+
+    r = client.post("/chat/turn", json={"user_id": "demo", "message": "hello"})
+    assert r.status_code == 200 and r.json()["ok"] is True
+
+    after = client.get("/metrics").text
+    a_turns = _sample(after, "vp_turns_total")
+    a_count = _sample(after, "vp_chat_seconds_count")
+    assert a_turns == b_turns + 1
+    assert a_count == b_count + 1

@@ -11,6 +11,7 @@ A FastAPI-based AI companion app with chat, memory, persona management, and a br
 - 🧍 Persona profile management (`persona.json`)
 - 🔊 Voice pipeline hooks (STT/TTS/VAD + viseme support)
 - 🛡️ Safety gate + audit logging
+- ⚡ Redis + observability: Prometheus `/metrics`, per-user rate limiting, TTS response cache (all gated on `REDIS_URL`)
 
 ## Repository Layout
 
@@ -119,6 +120,24 @@ Terminal chat helper:
 
 Identity and user facts remain available after app/vLLM restarts via durable memory persistence (validated in tests).
 
+### Redis + Observability (Feature 3)
+
+Backend infrastructure on the realtime voice pipeline, each **gated on `REDIS_URL`** — unset ⇒ in-memory sessions, no cache, allow-all rate limit, byte-identical to before (full suite still `139 passed`):
+
+- **TTS response cache** — Redis-cached waveforms; measured **1069 ms → 2.6 ms** on a hit (**407× / 99.75% latency cut**)
+- **Per-user rate limiting** — atomic Lua token bucket, fail-open; a 10-request burst yields **5 allowed / 5 rejected**
+- **Redis session store** — durable conversation history in `vp:sess:*`, **7-day TTL**
+- **Prometheus metrics** — `/metrics` over the HTTP + WS turn paths (`vp_turns_total`, `vp_chat_seconds`, cache / rate-limit counters)
+
+Reproduce (Redis required; uses DB 15, never db0):
+
+```bash
+scripts/demo/serve.sh      # app on :8090 with Redis + ollama + fallback TTS
+scripts/demo/run_demo.sh   # drives traffic, prints the numbers
+```
+
+Full writeup + captured output: [docs/DEMO.md](./docs/DEMO.md).
+
 ## API Notes
 
 Common endpoints:
@@ -130,6 +149,7 @@ Common endpoints:
 - `POST /memory/write`
 - `DELETE /memory/erase?confirm=true`
 - `GET /health`
+- `GET /metrics` (Prometheus exposition)
 
 ## Testing
 

@@ -1,0 +1,59 @@
+
+========== clean slate: FLUSHDB db15 (never db0) ==========
+db15 size now: 0
+
+========== SECTION 1 — HTTP metrics + Redis session store ==========
+vp_turns_total (HTTP path): 0.0 -> 3.0   (was flat before this change)
+chat-latency samples recorded: 3.0
+session key(s) in Redis:
+vp:sess:alice
+alice conversation history (Redis LIST, role|text):
+{"role": "user", "content": "who are you", "at": "2026-07-01T01:34:46.409461+00:00"}
+{"role": "assistant", "content": "I\u2019m Ani. My persona background is: Ani used to work night shifts and now helps with planning.", "at": "2026-07-01T01:34:46.410478+00:00"}
+{"role": "user", "content": "who are you", "at": "2026-07-01T01:34:46.416065+00:00"}
+{"role": "assistant", "content": "I\u2019m Ani. My persona background is: Ani used to work night shifts and now helps with planning.", "at": "2026-07-01T01:34:46.416832+00:00"}
+{"role": "user", "content": "who are you", "at": "2026-07-01T01:34:46.421652+00:00"}
+{"role": "assistant", "content": "I\u2019m Ani. My persona background is: Ani used to work night shifts and now helps with planning.", "at": "2026-07-01T01:34:46.422479+00:00"}
+alice session TTL: 604800 s  (7-day bound -> idle keys evaporate)
+
+========== SECTION 2 — TTS response cache: miss (full synth) vs hit (Redis GET) ==========
+  miss=1.177515s  hit=0.002613s
+  miss=0.959132s  hit=0.002508s
+  miss=0.974362s  hit=0.002832s
+  miss=1.165028s  hit=0.002547s
+  --> avg MISS=1069.0 ms | avg HIT=2.62 ms | 407x faster | 99.75% latency cut
+  cache counter delta this run: miss +4, hit +4
+  (baseline misses = filler audio pre-warmed into the cache at app startup)
+  cache keys: 4 total; sample key TTL: 86397 s
+
+========== SECTION 3 — per-user token-bucket rate limiting (capacity=5) ==========
+burst of 10 rapid requests (one user) -> allowed=5, rejected=5
+vp_rate_limited_total: 0.0 -> 5.0
+bucket key: vp:rl:burst  TTL=60 s
+
+========== FINAL — app metric families (/metrics) ==========
+vp_vad_seconds_count 0.0
+vp_vad_seconds_sum 0.0
+vp_stt_seconds_count 0.0
+vp_stt_seconds_sum 0.0
+vp_ttfa_seconds_count 0.0
+vp_ttfa_seconds_sum 0.0
+vp_tts_seconds_count 0.0
+vp_tts_seconds_sum 0.0
+vp_chat_seconds_count 8.0
+vp_chat_seconds_sum 0.015708629999608092
+vp_turns_total 8.0
+vp_tts_cache_total{result="miss"} 11.0
+vp_tts_cache_total{result="hit"} 4.0
+vp_rate_limited_total 5.0
+
+full /metrics saved -> docs/demo/metrics_snapshot.txt
+all Redis keys created by this demo (db15):
+vp:rl:alice
+vp:rl:burst
+vp:sess:alice
+vp:sess:burst
+vp:tts:3c65ac36b32051d7497b8dd32186f5259bbeab7cbfff41b72bbddd5b2e626f8e
+vp:tts:4010cf7c6edd41f874ade7b3cac9f011690fc6d338f4c34640b1a026ca53d1ae
+vp:tts:547322ac25cdcfc291897cb8bfed7a6398ec66940abc5a2e6c086331aeb1b669
+vp:tts:949768b98a92d1e8e22a77e40658ef5e754e95093db0e36fc891f04be713ad61

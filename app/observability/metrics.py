@@ -86,6 +86,9 @@ vp_ttfa_seconds: Histogram = _get_or_create(
 vp_tts_seconds: Histogram = _get_or_create(
     Histogram, "vp_tts_seconds", "Text-to-speech synthesis latency in seconds.", buckets=_LATENCY_BUCKETS
 )
+vp_chat_seconds: Histogram = _get_or_create(
+    Histogram, "vp_chat_seconds", "End-to-end /chat/turn (text) latency in seconds.", buckets=_LATENCY_BUCKETS
+)
 
 vp_turns_total: Counter = _get_or_create(
     Counter, "vp_turns_total", "Completed conversation turns."
@@ -122,6 +125,12 @@ def observe_ttfa(seconds: float) -> None:
 def observe_tts(seconds: float) -> None:
     """Record a TTS synthesis latency sample (seconds)."""
     vp_tts_seconds.observe(seconds)
+
+
+@_never_raises
+def observe_chat(seconds: float) -> None:
+    """Record an end-to-end text chat-turn (/chat/turn) latency sample (seconds)."""
+    vp_chat_seconds.observe(seconds)
 
 
 @_never_raises
