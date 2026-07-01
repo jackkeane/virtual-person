@@ -69,6 +69,9 @@ class AppConfig(BaseModel):
     session_ttl: int = int(os.getenv("SESSION_TTL", "604800"))
 
     metrics_enabled: bool = _truthy("METRICS_ENABLED", "1")
+    # Optional bearer token for /metrics. Empty = open (dev default); when set,
+    # /metrics requires `Authorization: Bearer <token>` or returns 401.
+    metrics_auth_token: str = os.getenv("METRICS_AUTH_TOKEN", "")
 
     tts_cache_enabled: bool = _truthy("TTS_CACHE_ENABLED", "1")
     tts_cache_ttl: int = int(os.getenv("TTS_CACHE_TTL", "86400"))

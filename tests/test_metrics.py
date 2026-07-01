@@ -129,3 +129,40 @@ def test_http_chat_turn_emits_turn_and_latency(monkeypatch):
     a_count = _sample(after, "vp_chat_seconds_count")
     assert a_turns == b_turns + 1
     assert a_count == b_count + 1
+
+
+def test_metrics_bearer_auth_when_token_set():
+    """With METRICS_AUTH_TOKEN set, /metrics requires the bearer token (401
+    otherwise); with it unset the endpoint stays open (dev default)."""
+    prev = config.metrics_auth_token
+    config.metrics_auth_token = "s3cret"
+    try:
+        assert client.get("/metrics").status_code == 401  # no header
+        assert client.get("/metrics", headers={"Authorization": "Bearer nope"}).status_code == 401
+        ok = client.get("/metrics", headers={"Authorization": "Bearer s3cret"})
+        assert ok.status_code == 200 and "vp_turns_total" in ok.text
+    finally:
+        config.metrics_auth_token = prev
+    assert client.get("/metrics").status_code == 200  # open again once unset
+
+
+def test_http_rate_limit_keys_on_client_ip_not_user_id(monkeypatch):
+    """The limiter must key on the caller's transport identity (client IP), not
+    the client-supplied user_id, which a caller could rotate to dodge the limit."""
+    import app.main as main
+
+    seen = []
+
+    class _RecordingLimiter:
+        def allow(self, ident):
+            seen.append(ident)
+            return (True, 0.0)
+
+    monkeypatch.setattr(main, "limiter", _RecordingLimiter())
+    monkeypatch.setattr(main.config, "rate_limit_enabled", True)
+    monkeypatch.setattr(main, "_run_chat_turn", lambda body: {"ok": True, "response": "x"})
+
+    r = client.post("/chat/turn", json={"user_id": "spoofed-name", "message": "hi"})
+    assert r.status_code == 200
+    # TestClient's peer host is "testclient" — the limiter saw the IP, not the body's user_id.
+    assert seen == ["testclient"]

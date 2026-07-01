@@ -122,12 +122,12 @@ Identity and user facts remain available after app/vLLM restarts via durable mem
 
 ### Redis + Observability (Feature 3)
 
-Backend infrastructure on the realtime voice pipeline, each **gated on `REDIS_URL`** — unset ⇒ in-memory sessions, no cache, allow-all rate limit, byte-identical to before (full suite still `139 passed`):
+Backend infrastructure on the realtime voice pipeline, each **gated on `REDIS_URL`** — unset ⇒ in-memory sessions, no cache, allow-all rate limit, byte-identical to before (full suite still `141 passed`):
 
-- **TTS response cache** — Redis-cached waveforms; measured **1069 ms → 2.6 ms** on a hit (**407× / 99.75% latency cut**)
-- **Per-user rate limiting** — atomic Lua token bucket, fail-open; a 10-request burst yields **5 allowed / 5 rejected**
+- **TTS response cache** — Redis-cached waveforms; a hit collapses synth to a ~3 ms Redis `GET` (**≥99.7% latency cut**; a sample run: 2231 ms → 2.9 ms, 763×)
+- **Per-caller rate limiting** — atomic Lua token bucket keyed on the **client IP** (not the spoofable `user_id`), fail-open; a 10-request burst yields **5 allowed / 5 rejected**
 - **Redis session store** — durable conversation history in `vp:sess:*`, **7-day TTL**
-- **Prometheus metrics** — `/metrics` over the HTTP + WS turn paths (`vp_turns_total`, `vp_chat_seconds`, cache / rate-limit counters)
+- **Prometheus metrics** — `/metrics` over the HTTP + WS turn paths (`vp_turns_total`, `vp_chat_seconds`, cache / rate-limit counters); optional bearer auth via `METRICS_AUTH_TOKEN`
 
 Reproduce (Redis required; uses DB 15, never db0):
 

@@ -58,7 +58,8 @@ echo "  (baseline misses = filler audio pre-warmed into the cache at app startup
 k=$(R KEYS 'vp:tts:*' | head -1)
 echo "  cache keys: $(R KEYS 'vp:tts:*' | wc -l) total; sample key TTL: $(R TTL "$k") s"
 
-hr "SECTION 3 — per-user token-bucket rate limiting (capacity=5)"
+hr "SECTION 3 — per-caller rate limiting (keyed on client IP, capacity=5)"
+for k in $(R KEYS 'vp:rl:*'); do R DEL "$k" >/dev/null; done   # reset limiter for a clean burst
 rb=$(metric vp_rate_limited_total); rb=${rb:-0}
 ok=0; limited=0
 for _ in $(seq 1 10); do
@@ -66,9 +67,10 @@ for _ in $(seq 1 10); do
   if printf '%s' "$resp" | grep -q '"error":"rate_limited"'; then limited=$((limited+1)); else ok=$((ok+1)); fi
 done
 ra=$(metric vp_rate_limited_total); ra=${ra:-0}
-echo "burst of 10 rapid requests (one user) -> allowed=${ok}, rejected=${limited}"
+echo "burst of 10 rapid requests from one client IP -> allowed=${ok}, rejected=${limited}"
 echo "vp_rate_limited_total: ${rb} -> ${ra}"
-echo "bucket key: $(R KEYS 'vp:rl:burst')  TTL=$(R TTL vp:rl:burst) s"
+rlkey=$(R KEYS 'vp:rl:*' | head -1)
+echo "bucket key: ${rlkey}  TTL=$(R TTL "$rlkey") s  (keyed on caller IP, not the spoofable user_id)"
 
 hr "FINAL — app metric families (/metrics)"
 mkdir -p "$(dirname "$0")/../../docs/demo"

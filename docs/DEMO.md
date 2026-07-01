@@ -1,7 +1,7 @@
 # Redis + Observability — Live Demo
 
 This walks through **Feature 3**: four pieces of backend infrastructure added to
-the realtime voice pipeline — a Redis session store, Prometheus metrics, per-user
+the realtime voice pipeline — a Redis session store, Prometheus metrics, per-caller
 rate limiting, and a TTS response cache — and captures the real numbers from a
 live run so they can be reproduced, not just claimed.
 
@@ -10,7 +10,7 @@ live run so they can be reproduced, not just claimed.
 Every Redis-backed path is inert unless `REDIS_URL` is set **and** Redis is
 reachable (see `app/infra/redis_client.py`). With it unset the app behaves
 exactly as before Feature 3 — in-memory sessions, no cache, allow-all rate limit
-— so the default single-process deploy and the whole test suite (`139 passed`)
+— so the default single-process deploy and the whole test suite (`141 passed`)
 are byte-identical to baseline. Turning the features on is a matter of pointing
 `REDIS_URL` at a Redis instance; nothing else changes.
 
@@ -46,10 +46,14 @@ Headline numbers from one live run (`docs/demo/CAPTURE.txt`, full `/metrics` in
 
 | Capability | Evidence | Number |
 |---|---|---|
-| **TTS response cache** | miss = full synth, hit = one Redis `GET` | avg **1069 ms → 2.62 ms** = **407× faster, 99.75% latency cut** (4/4 phrases) |
-| **Per-user rate limiting** | burst of 10 rapid requests, one user, capacity 5 | **5 allowed, 5 rejected**; `vp_rate_limited_total 0 → 5` |
+| **TTS response cache** | miss = full synth, hit = one Redis `GET` | hit collapses synth to a **~3 ms** GET — **≥99.7% latency cut** (this run **2231 ms → 2.9 ms, 763×**) |
+| **Per-caller rate limiting** | burst of 10 rapid requests, one client IP, capacity 5 | **5 allowed, 5 rejected**; `vp_rate_limited_total 0 → 5` |
 | **Redis session store** | conversation history persisted per user | `vp:sess:alice` holds the turn list, **TTL 604800 s (7 days)** |
 | **HTTP metrics** | `/chat/turn` now moves Prometheus counters | `vp_turns_total 0 → 3`, `vp_chat_seconds_count 3` (flat before this change) |
+
+> The cache "miss" latency tracks the synth provider (here gTTS over the network,
+> ~2 s and variable); the "hit" is a constant ~3 ms Redis `GET`. The stable,
+> meaningful number is the hit: it removes essentially all of the synth cost.
 
 ### Raw run
 
@@ -57,26 +61,22 @@ Headline numbers from one live run (`docs/demo/CAPTURE.txt`, full `/metrics` in
 ========== SECTION 1 — HTTP metrics + Redis session store ==========
 vp_turns_total (HTTP path): 0.0 -> 3.0   (was flat before this change)
 chat-latency samples recorded: 3.0
-session key(s) in Redis:
-vp:sess:alice
-alice conversation history (Redis LIST, role|text):
-{"role": "user", "content": "who are you", "at": "2026-07-01T01:34:46.409461+00:00"}
-{"role": "assistant", "content": "I’m Ani. My persona background is: ...", ...}
-... (6 entries: 3 user + 3 assistant)
+session key(s) in Redis:  vp:sess:alice
+alice conversation history (Redis LIST): 6 entries (3 user + 3 assistant), each {role, content, at}
 alice session TTL: 604800 s  (7-day bound -> idle keys evaporate)
 
 ========== SECTION 2 — TTS response cache: miss (full synth) vs hit (Redis GET) ==========
-  miss=1.177515s  hit=0.002613s
-  miss=0.959132s  hit=0.002508s
-  miss=0.974362s  hit=0.002832s
-  miss=1.165028s  hit=0.002547s
-  --> avg MISS=1069.0 ms | avg HIT=2.62 ms | 407x faster | 99.75% latency cut
+  miss=2.026770s  hit=0.002557s
+  miss=2.152225s  hit=0.002904s
+  miss=2.546725s  hit=0.003784s
+  miss=2.199118s  hit=0.002454s
+  --> avg MISS=2231.2 ms | avg HIT=2.92 ms | 763x faster | 99.87% latency cut
   cache counter delta this run: miss +4, hit +4
 
-========== SECTION 3 — per-user token-bucket rate limiting (capacity=5) ==========
-burst of 10 rapid requests (one user) -> allowed=5, rejected=5
+========== SECTION 3 — per-caller rate limiting (keyed on client IP, capacity=5) ==========
+burst of 10 rapid requests from one client IP -> allowed=5, rejected=5
 vp_rate_limited_total: 0.0 -> 5.0
-bucket key: vp:rl:burst  TTL=60 s
+bucket key: vp:rl:127.0.0.1  TTL=60 s  (keyed on caller IP, not the spoofable user_id)
 ```
 
 ### Redis keys created (DB 15)
@@ -84,19 +84,36 @@ bucket key: vp:rl:burst  TTL=60 s
 ```
 vp:sess:alice          # session history (RPUSH + LTRIM + 7-day TTL)
 vp:sess:burst
-vp:rl:alice            # token-bucket state (atomic Lua, 60 s TTL)
-vp:rl:burst
+vp:rl:127.0.0.1        # token-bucket state, keyed on caller IP (atomic Lua, 60 s TTL)
 vp:tts:3c65ac36...     # cached waveform, key = sha256(provider|text), 24 h TTL
 vp:tts:4010cf7c...
 vp:tts:547322ac...
 vp:tts:949768b9...
 ```
 
+## Hardening (review follow-ups)
+
+Four low-severity findings from the Feature 3 review, since fixed:
+
+- **Rate-limit identity** — the limiter now keys on the caller's **client IP**
+  (`request.client.host` / `websocket.client.host`), not the client-supplied
+  `user_id` a caller could rotate to dodge the limit. Sessions still key on
+  `user_id` (that's the correct per-user scope). Behind a proxy, prefer
+  `X-Forwarded-For`.
+- **Rate-limit ordering** — on the WS voice path the gate now runs **before STT**,
+  so a flood is rejected without paying for transcription (single token per turn,
+  no double-consume).
+- **Filler audio off the event loop** — the "thinking…" filler lookup/synth is
+  offloaded via `run_in_executor`, so a cold filler cache can't block the async
+  loop.
+- **`/metrics` auth** — set `METRICS_AUTH_TOKEN` to require
+  `Authorization: Bearer <token>` on `/metrics`; unset leaves it open (dev default).
+
 ## Honest notes
 
-- **The cache "miss" is a real synthesis** through the fallback TTS provider
-  (~1 s); the "hit" is a single Redis `GET` (~2.6 ms). Same numbers hold for any
-  provider — the cache sits in front of CosyVoice/FishAudio identically.
+- **The cache "miss" is a real synthesis** through the fallback TTS provider; the
+  "hit" is a single Redis `GET` (~3 ms). Same behavior in front of
+  CosyVoice/FishAudio — the cache wraps any provider identically.
 - **`vp_tts_cache_total{result="miss"}` starts non-zero** because the app
   pre-warms filler audio ("嗯…", "让我想想…") into the cache at startup; the demo
   reports the per-run *delta* (miss +4 / hit +4) to isolate its own traffic.

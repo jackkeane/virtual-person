@@ -123,7 +123,9 @@ class AvatarWebSocketHandler:
                 msg_type = payload.get("type")
 
                 if msg_type == "chat":
-                    await self._process_text_chat(websocket, payload.get("text", ""), payload.get("user_id", "ws_user"))
+                    chat_uid = payload.get("user_id", "ws_user")
+                    if await self._rate_limit_ok(websocket, chat_uid):
+                        await self._process_text_chat(websocket, payload.get("text", ""), chat_uid)
                 elif msg_type == "audio":
                     now_ms = time.monotonic() * 1000
                     elapsed_since_tts = now_ms - self._last_audio_send_ms
@@ -153,6 +155,11 @@ class AvatarWebSocketHandler:
                         await websocket.send_json({"type": "status", "text": ""})
                         await websocket.send_json({"type": "transcript", "text": "", "error": "Could not understand audio"})
                         await self._safe_send_state(websocket, "idle")
+                        continue
+
+                    # Speech detected — gate on the caller BEFORE paying for STT.
+                    audio_uid = payload.get("user_id", "ws_user")
+                    if not await self._rate_limit_ok(websocket, audio_uid):
                         continue
 
                     stt_start = time.monotonic()
@@ -186,27 +193,36 @@ class AvatarWebSocketHandler:
         except WebSocketDisconnect:
             return
 
-    async def _process_text_chat(self, websocket: WebSocket, text: str, user_id: str) -> None:
-        # --- Per-user rate limiting ---
-        # Inert unless a limiter is wired (main.py) AND enabled. The blocking
-        # Redis call is offloaded to the threadpool so the event loop is never
-        # blocked; without Redis the limiter fails open (allow) instantly.
-        if self.rate_limiter is not None and config.rate_limit_enabled:
-            loop = asyncio.get_event_loop()
-            allowed, _retry_after = await loop.run_in_executor(
-                _executor, self.rate_limiter.allow, user_id
-            )
-            if not allowed:
-                inc_rate_limited()
-                await websocket.send_json({
-                    "type": "chat",
-                    "role": "assistant",
-                    "text": "我有点忙，稍等一下再说好吗？",
-                    "final": True,
-                })
-                await self._safe_send_state(websocket, "idle")
-                return
+    async def _rate_limit_ok(self, websocket: WebSocket, user_id: str) -> bool:
+        """Gate a turn BEFORE any expensive work (STT / LLM). Returns True to
+        proceed; on rejection sends the 'busy' reply + idle state and returns
+        False. Keyed on the caller's IP rather than the client-supplied user_id
+        (which a caller could rotate to dodge the limit), falling back to user_id
+        if the peer address is unavailable. The blocking Redis call is offloaded
+        so the event loop is never blocked; inert without a wired limiter."""
+        if self.rate_limiter is None or not config.rate_limit_enabled:
+            return True
+        peer = websocket.client.host if websocket.client else None
+        loop = asyncio.get_event_loop()
+        allowed, _retry_after = await loop.run_in_executor(
+            _executor, self.rate_limiter.allow, peer or user_id
+        )
+        if allowed:
+            return True
+        inc_rate_limited()
+        await websocket.send_json({
+            "type": "chat",
+            "role": "assistant",
+            "text": "我有点忙，稍等一下再说好吗？",
+            "final": True,
+        })
+        await self._safe_send_state(websocket, "idle")
+        return False
 
+    async def _process_text_chat(self, websocket: WebSocket, text: str, user_id: str) -> None:
+        # Rate limiting is enforced by callers via _rate_limit_ok() BEFORE this
+        # runs (so the WS voice path can reject a flood before paying for STT),
+        # keeping a single token consumed per turn.
         async with self._turn_lock:
             self._turn_in_progress = True
             try:
@@ -350,7 +366,9 @@ class AvatarWebSocketHandler:
                 if elapsed_ms >= 1200:
                     print(f"[WS] filler_after_ms={int(elapsed_ms)}")
                     filler_lang = "zh-CN" if any("\u4e00" <= ch <= "\u9fff" for ch in response) else "en"
-                    filler_audio, filler_phonemes = self.filler_service.get_filler(filler_lang)
+                    filler_audio, filler_phonemes = await asyncio.get_event_loop().run_in_executor(
+                        _executor, self.filler_service.get_filler, filler_lang
+                    )
                     filler_visemes = build_viseme_timeline(filler_phonemes)
                     await self._send_audio_response(websocket, filler_audio, filler_visemes)
                     sent_filler_audio = True

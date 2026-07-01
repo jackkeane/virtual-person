@@ -5,7 +5,7 @@ import base64
 import time
 from datetime import datetime
 from typing import Iterable
-from fastapi import FastAPI, Response, WebSocket
+from fastapi import FastAPI, Request, Response, WebSocket
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -353,23 +353,32 @@ def health() -> dict:
 
 
 @app.get("/metrics")
-def metrics() -> Response:
-    """Prometheus exposition endpoint. Returns 404 when metrics are disabled."""
+def metrics(request: Request) -> Response:
+    """Prometheus exposition endpoint. 404 when metrics are disabled; 401 when
+    METRICS_AUTH_TOKEN is set and the bearer token is missing/wrong. Unset token
+    (the default) leaves the endpoint open, unchanged from before."""
     if not config.metrics_enabled:
         return Response(status_code=404)
+    token = config.metrics_auth_token
+    if token and request.headers.get("authorization", "") != f"Bearer {token}":
+        return Response(status_code=401)
     body, content_type = obs_metrics.render()
     return Response(content=body, media_type=content_type)
 
 
 @app.post("/chat/turn")
-def chat_turn(body: ChatTurnIn) -> dict:
-    # --- Per-user rate limiting (no-op unless Redis is configured + reachable) ---
+def chat_turn(body: ChatTurnIn, request: Request = None) -> dict:
+    # --- Per-caller rate limiting (no-op unless Redis is configured + reachable) ---
     # Enforced ONLY at this public HTTP boundary. Internal callers reach the chat
     # pipeline via _run_chat_turn (e.g. the WS path, which already consumes a
     # token in app/ws/handler.py), so a single turn never double-decrements the
     # bucket regardless of transport / streaming / provider configuration.
     if config.rate_limit_enabled:
-        allowed, retry_after = limiter.allow(body.user_id)
+        # Key on the caller's IP, not the client-supplied user_id (which a caller
+        # could rotate to dodge the limit). Fall back to user_id for internal /
+        # test calls with no request. Behind a proxy, prefer X-Forwarded-For.
+        rl_id = request.client.host if (request is not None and request.client) else body.user_id
+        allowed, retry_after = limiter.allow(rl_id)
         if not allowed:
             obs_metrics.inc_rate_limited()
             return {"ok": False, "error": "rate_limited", "retry_after": retry_after}
