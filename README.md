@@ -11,7 +11,8 @@ A FastAPI-based AI companion app with chat, memory, persona management, and a br
 - 🧍 Persona profile management (`persona.json`)
 - 🔊 Voice pipeline hooks (STT/TTS/VAD + viseme support)
 - 🛡️ Safety gate + audit logging
-- ⚡ Redis + observability: Prometheus `/metrics`, per-user rate limiting, TTS response cache (all gated on `REDIS_URL`)
+- ⚡ Redis + observability: Prometheus `/metrics`, per-caller rate limiting, TTS response cache (all gated on `REDIS_URL`)
+- ✅ CI (GitHub Actions) + offline evaluation harness — safety-gate & retrieval scorecard, gating every push
 
 ## Repository Layout
 
@@ -155,6 +156,14 @@ Common endpoints:
 
 ```bash
 ~/anaconda3/bin/conda run -n py312 python -m pytest -q
+```
+
+**CI** runs the suite on every push/PR (`.github/workflows/ci.yml`): a default job (Redis dormant), a Redis-service job that exercises the Redis-gated paths, and a deterministic **eval** job that publishes a scorecard artifact.
+
+**Evaluation harness** ([`eval/`](./eval/README.md)) — an offline, no-LLM scorecard over the safety gate and memory retrieval, plus an optional local LLM-as-judge quality eval:
+
+```bash
+python eval/run_eval.py     # safety-gate + retrieval scorecard -> eval/report.json
 ```
 
 ## Troubleshooting

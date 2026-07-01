@@ -1,0 +1,121 @@
+{
+  "generated_at": "2026-07-01T02:44:46.995799+00:00",
+  "deterministic": true,
+  "suites": {
+    "safety": {
+      "n": 16,
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 8,
+      "fp": 0,
+      "tn": 8,
+      "fn": 0,
+      "duration_ms": 0.01,
+      "failures": []
+    },
+    "output_gate": {
+      "n": 8,
+      "accuracy": 1.0,
+      "correct": 8,
+      "duration_ms": 0.004,
+      "failures": []
+    },
+    "retrieval": {
+      "n": 10,
+      "top1_accuracy": 1.0,
+      "correct": 10,
+      "duration_ms": 0.306,
+      "details": [
+        {
+          "id": "rel-note-gym",
+          "query": "gym workout",
+          "expected": 1,
+          "predicted": 1,
+          "ok": true,
+          "top_score": 0.83
+        },
+        {
+          "id": "exact-key-goal-career",
+          "query": "career",
+          "expected": 0,
+          "predicted": 0,
+          "ok": true,
+          "top_score": 1.28
+        },
+        {
+          "id": "cross-kind-identity",
+          "query": "identity profile",
+          "expected": 2,
+          "predicted": 2,
+          "ok": true,
+          "top_score": 1.08
+        },
+        {
+          "id": "pref-beats-note",
+          "query": "tea",
+          "expected": 1,
+          "predicted": 1,
+          "ok": true,
+          "top_score": 1.08
+        },
+        {
+          "id": "stale-drop-wifi",
+          "query": "wifi password",
+          "expected": 1,
+          "predicted": 1,
+          "ok": true,
+          "top_score": 0.83
+        },
+        {
+          "id": "todo-groceries",
+          "query": "groceries",
+          "expected": 0,
+          "predicted": 0,
+          "ok": true,
+          "top_score": 1.23
+        },
+        {
+          "id": "project-vp",
+          "query": "virtual person project",
+          "expected": 0,
+          "predicted": 0,
+          "ok": true,
+          "top_score": 1.013
+        },
+        {
+          "id": "pref-music",
+          "query": "music guitar",
+          "expected": 2,
+          "predicted": 2,
+          "ok": true,
+          "top_score": 1.08
+        },
+        {
+          "id": "goal-learn-rust",
+          "query": "learn rust programming",
+          "expected": 0,
+          "predicted": 0,
+          "ok": true,
+          "top_score": 1.08
+        },
+        {
+          "id": "todo-budget-exactkey",
+          "query": "budget",
+          "expected": 1,
+          "predicted": 1,
+          "ok": true,
+          "top_score": 1.23
+        }
+      ],
+      "failures": []
+    }
+  },
+  "thresholds": {
+    "safety_accuracy": 0.85,
+    "output_accuracy": 0.85,
+    "retrieval_top1_accuracy": 0.7
+  },
+  "passed": true
+}
