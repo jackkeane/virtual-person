@@ -35,6 +35,22 @@ echo "session key(s) in Redis:"; R KEYS 'vp:sess:*'
 echo "alice conversation history (Redis LIST, role|text):"; R LRANGE vp:sess:alice 0 -1
 echo "alice session TTL: $(R TTL vp:sess:alice) s  (7-day bound -> idle keys evaporate)"
 
+hr "SECTION 1B — REAL LLM turn (open-ended message -> the app's real LLM)"
+# The 'who are you' turns above hit the deterministic persona branch (~2ms,
+# model=rule-persona, no LLM). An open-ended message with no trigger keyword
+# flows through the REAL provider: on serve_vllm.sh that's vLLM/Qwen3-14B-AWQ.
+# The model name is echoed from the response body; vp_chat_seconds now captures
+# true inference latency (contrast the stub's ~2ms).
+csb=$(metric vp_chat_seconds_sum); csb=${csb:-0}
+rt=$(curl -s -o /tmp/vp_real_turn.json -w '%{time_total}' -m 120 -X POST "$BASE/chat/turn" \
+       -H 'Content-Type: application/json' \
+       -d '{"user_id":"real","message":"我今天工作压力有点大，用一句话鼓励我一下"}')
+csa=$(metric vp_chat_seconds_sum); csa=${csa:-0}
+echo "  end-to-end latency: ${rt}s"
+python3 -c "import json; d=json.load(open('/tmp/vp_real_turn.json')); print('  model :', d.get('model'), '  ok:', d.get('ok')); print('  reply :', d.get('response'))"
+awk -v a="$csb" -v b="$csa" 'BEGIN{printf "  server-side inference latency (delta vp_chat_seconds_sum): %.3f s   (stub branch was ~0.002s)\n", b-a}'
+echo "  real reply persisted to Redis session vp:sess:real:"; R LRANGE vp:sess:real 0 -1
+
 hr "SECTION 2 — TTS response cache: miss (full synth) vs hit (Redis GET)"
 cache_ct() { curl -s "$BASE/metrics" | grep -F "vp_tts_cache_total{result=\"$1\"}" | awk '{print $2}'; }
 mb=$(cache_ct miss); mb=${mb:-0}; hb=$(cache_ct hit); hb=${hb:-0}

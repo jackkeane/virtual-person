@@ -39,6 +39,39 @@ scripts/demo/run_demo.sh
 `run_demo.sh` flushes **DB 15** for a clean slate (never db0), then exercises all
 four features and reads the results back from `/metrics` and `redis-cli`.
 
+## Running on the real vLLM stack (Qwen3-14B-AWQ)
+
+`serve.sh` above defaults to **ollama** so the demo needs no GPU. The project's
+**production** LLM is vLLM serving `Qwen/Qwen3-14B-AWQ` over its OpenAI-compatible
+API (`LLM_PROVIDER=openai_compat`, see `app/config.py`). Parallel scripts run the
+same three demos against that real stack — the flip is a single env var, business
+code unchanged:
+
+```bash
+# start vLLM first (project start.sh / your venv), then one server for all three:
+scripts/demo/serve_vllm.sh          # app on vLLM/Qwen3-14B-AWQ + Redis(db15) + semantic memory(bge-m3)
+
+scripts/demo/run_demo.sh            # 3) Redis/observability. SECTION 1B sends a REAL open-ended turn:
+                                    #    model=Qwen/Qwen3-14B-AWQ, vp_chat_seconds shows true inference
+                                    #    latency (~4.5 s) vs the deterministic stub branch (~2 ms).
+scripts/demo/semantic_demo_vllm.sh  # 1) end-to-end: bge-m3 semantic recall -> vLLM answers a PARAPHRASED
+                                    #    question (no shared word) from the recalled memory.
+scripts/demo/run_llm_eval_vllm.sh   # 4) LLM-judge over REAL Qwen replies; judge = INDEPENDENT ollama
+                                    #    qwen3:32b (judge != system-under-test).
+```
+
+The deterministic, LLM-free gate stays `eval/run_eval.py` (the CI job); these
+vLLM scripts are the *live* interview demos, not CI. `serve_vllm.sh` is hermetic
+(throwaway memory store, DSNs unset, Redis DB 15 — db0 untouched).
+
+Verified in one live run against real `Qwen/Qwen3-14B-AWQ`:
+
+| demo | evidence | number |
+|---|---|---|
+| 3) real LLM turn | response `model` field + `vp_chat_seconds` delta | `Qwen/Qwen3-14B-AWQ`, **4.48 s** real inference vs **0.002 s** stub |
+| 1) recall → generate | 3 paraphrase questions, zero lexical overlap | **3/3** answered from bge-m3-recalled memory (豆豆 / 后端开发 / 北海道) |
+| 4) LLM-judge | 8 real Qwen replies, independent judge | persona **4.75** · helpfulness **4.62** · overall **4.69 / 5** |
+
 ## Captured results
 
 Headline numbers from one live run (`docs/demo/CAPTURE.txt`, full `/metrics` in
