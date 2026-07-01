@@ -47,6 +47,37 @@ jobs:
           REDIS_URL: redis://127.0.0.1:6379/15
         run: pytest -q
 
+  # Same suite, but with a live RabbitMQ so the queue-gated (broker-backed) paths
+  # run too. The queue is background-only and INERT without AMQP_URL, so the bare
+  # `test` job above stays green; here the enqueue/consume + retry/DLQ tests
+  # (guarded by @pytest.mark.skipif(not os.getenv("AMQP_URL"))) actually execute.
+  test-rabbitmq:
+    runs-on: ubuntu-latest
+    services:
+      rabbitmq:
+        image: rabbitmq:3-management-alpine
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run tests (RabbitMQ-enabled)
+        env:
+          QUEUE_ENABLED: '1'
+          AMQP_URL: amqp://guest:guest@127.0.0.1:5672/
+        run: pytest -q
+
   # Same idea as test-redis, but with a REAL pgvector so the semantic vector
   # store's live SQL path runs end-to-end: CREATE EXTENSION vector, the
   # vp_mem_vectors DDL, upsert with an ::vector literal, and the cosine `<=>`

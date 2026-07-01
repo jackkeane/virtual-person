@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import os
 import base64
@@ -29,6 +30,10 @@ from app.voice.lipsync import build_viseme_timeline
 from app.ws.handler import AvatarWebSocketHandler
 from app.infra.rate_limit import TokenBucketLimiter
 from app.observability import metrics as obs_metrics
+from app.queue import jobs
+from app.queue.task_queue import get_task_queue
+
+logger = logging.getLogger(__name__)
 
 
 def strip_thinking(text: str) -> str:
@@ -390,6 +395,25 @@ def chat_turn(body: ChatTurnIn, request: Request = None) -> dict:
     result = _run_chat_turn(body)
     obs_metrics.observe_chat(time.perf_counter() - started)
     obs_metrics.inc_turn()
+
+    # --- Background-only, fire-and-forget memory-curation enqueue ---------------
+    # RED-LINE (interview-critical): this lives ONLY here, at the HTTP boundary,
+    # AFTER the response is computed. It is background work and MUST NOT be added
+    # to app/ws/handler.py (the realtime VAD->STT->LLM->TTS voice path) or to
+    # _run_chat_turn (which the WS path calls directly). It is gated (a no-op
+    # unless QUEUE_ENABLED + AMQP_URL + a reachable broker), non-blocking (a single
+    # basic_publish), and swallows ALL errors so a broker outage can never break a
+    # chat or a voice turn.
+    if config.queue_enabled:
+        try:
+            task_queue = get_task_queue()
+            if task_queue is not None and task_queue.enqueue(
+                jobs.CURATE_MEMORIES, {"user_id": body.user_id}
+            ):
+                obs_metrics.inc_job_enqueued()
+        except Exception:
+            logger.debug("background curate_memories enqueue skipped (non-fatal)", exc_info=True)
+
     return result
 
 

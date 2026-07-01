@@ -100,6 +100,16 @@ vp_rate_limited_total: Counter = _get_or_create(
     Counter, "vp_rate_limited_total", "Requests rejected by the rate limiter."
 )
 
+# Background task-queue lifecycle (Feature: async background jobs). One labeled
+# family keeps the exposition compact: `event` is one of enqueued/processed/
+# failed/retried/dead_lettered. The producer side (chat_turn HTTP boundary) emits
+# `enqueued`; the consumer worker emits the processed/failed/retried/dead_lettered
+# transitions. Labeled counters stay dormant (no series) until first incremented,
+# exactly like vp_tts_cache_total.
+vp_queue_jobs_total: Counter = _get_or_create(
+    Counter, "vp_queue_jobs_total", "Background queue job lifecycle events, labeled by event.", ["event"]
+)
+
 
 # --- Instrumentation helpers (never raise) ---
 
@@ -149,6 +159,36 @@ def inc_tts_cache(hit: bool) -> None:
 def inc_rate_limited() -> None:
     """Count one request rejected by the rate limiter."""
     vp_rate_limited_total.inc()
+
+
+@_never_raises
+def inc_job_enqueued() -> None:
+    """Count one background job handed to the broker at the HTTP boundary."""
+    vp_queue_jobs_total.labels(event="enqueued").inc()
+
+
+@_never_raises
+def inc_job_processed() -> None:
+    """Count one background job whose handler completed successfully."""
+    vp_queue_jobs_total.labels(event="processed").inc()
+
+
+@_never_raises
+def inc_job_failed() -> None:
+    """Count one background job whose handler raised."""
+    vp_queue_jobs_total.labels(event="failed").inc()
+
+
+@_never_raises
+def inc_job_retried() -> None:
+    """Count one background job requeued for another attempt."""
+    vp_queue_jobs_total.labels(event="retried").inc()
+
+
+@_never_raises
+def inc_job_dead_lettered() -> None:
+    """Count one background job routed to the dead-letter queue (DLQ)."""
+    vp_queue_jobs_total.labels(event="dead_lettered").inc()
 
 
 def render() -> tuple[bytes, str]:

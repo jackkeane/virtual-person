@@ -113,5 +113,32 @@ class AppConfig(BaseModel):
     # small so semantic recall augments — never floods — the keyword/curation result.
     semantic_top_k: int = int(os.getenv("SEMANTIC_TOP_K", "5"))
 
+    # --- RabbitMQ background task queue (Feature: async background jobs) ---
+    # INERT BY DEFAULT and strictly OFF the realtime voice path. Like the Redis
+    # seams above, the queue is a NO-OP unless queue_enabled AND amqp_url is
+    # non-empty AND the broker is reachable (see app/queue/task_queue.py). With
+    # AMQP_URL unset the app is byte-identical to today: get_task_queue() returns
+    # None, enqueue() no-ops, NO broker connection is opened, and pika is never
+    # imported. queue_enabled defaults true (mirroring metrics/tts_cache/rate_limit)
+    # yet stays dormant because amqp_url is empty by default. The queue carries
+    # ONLY background jobs (memory curation, daily-summary precompute, proactive
+    # nudges) — never the VAD->STT->LLM->TTS turn. A broker outage must NEVER
+    # break a chat or a voice turn.
+    queue_enabled: bool = _truthy("QUEUE_ENABLED", "1")
+    amqp_url: str = os.getenv("AMQP_URL", "")
+    # Durable topology, declared idempotently on connect. A direct exchange routes
+    # the work queue by routing key; jobs that exhaust queue_max_retries dead-letter
+    # through the DLX into the DLQ so poison messages are quarantined instead of
+    # redelivered forever.
+    queue_exchange: str = os.getenv("QUEUE_EXCHANGE", "vp.tasks")
+    queue_name: str = os.getenv("QUEUE_NAME", "vp.tasks.q")
+    queue_routing_key: str = os.getenv("QUEUE_ROUTING_KEY", "vp.task")
+    queue_dlx: str = os.getenv("QUEUE_DLX", "vp.tasks.dlx")
+    queue_dlq: str = os.getenv("QUEUE_DLQ", "vp.tasks.dlq")
+    # Max handler attempts before a message is routed to the DLQ (poison guard).
+    queue_max_retries: int = int(os.getenv("QUEUE_MAX_RETRIES", "3"))
+    # Consumer QoS: max unacked messages a single worker holds in flight.
+    queue_prefetch: int = int(os.getenv("QUEUE_PREFETCH", "10"))
+
 
 config = AppConfig()
