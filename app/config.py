@@ -80,5 +80,38 @@ class AppConfig(BaseModel):
     rate_limit_capacity: int = int(os.getenv("RATE_LIMIT_CAPACITY", "20"))
     rate_limit_refill_per_sec: float = float(os.getenv("RATE_LIMIT_REFILL_PER_SEC", "1.0"))
 
+    # --- Semantic memory / embeddings (Phase-1 semantic layer) ---
+    # The semantic layer is INERT by default: with semantic_memory_enabled=False the
+    # app behaves byte-identically to before (keyword/curation retrieval only). Semantic
+    # retrieval activates ONLY when this is true AND an embedder is available; otherwise
+    # the existing keyword retrieval stays the default and fallback.
+    semantic_memory_enabled: bool = _truthy("SEMANTIC_MEMORY_ENABLED", "0")
+
+    # Embedding provider selects the EmbeddingService backend:
+    #   "hash"                  -> deterministic, offline, pure python+numpy (DEFAULT; CI/tests).
+    #   "ollama"                -> POST to ollama /api/embeddings (bge-m3, 1024-d); degrades to hash.
+    #   "sentence_transformers" -> optional lazy local model; degrades to hash.
+    # Any non-hash provider degrades to hash on failure and never raises into the caller.
+    embedding_provider: str = os.getenv("EMBEDDING_PROVIDER", "hash")
+    # Model name passed to the active provider (ignored by "hash"). bge-m3 for ollama.
+    embedding_model: str = os.getenv("EMBEDDING_MODEL", "bge-m3")
+    # Target vector dimension. 0 = auto per provider (hash=256, ollama/bge-m3=1024).
+    embedding_dim: int = int(os.getenv("EMBEDDING_DIM", "0"))
+
+    # pgvector store DSN. Deliberately SEPARATE from the main MEMORY_POSTGRES_DSN so the
+    # semantic vector store never touches the primary `memory_items` Postgres. Empty by
+    # default (in-process numpy cosine index only); set only in CI/pgvector-capable envs.
+    pgvector_dsn: str = os.getenv("PGVECTOR_DSN", "")
+
+    # Ollama embedding model (default bge-m3, 1024-d). `embedding_model` above is
+    # what get_embedding_service() actually reads to build the embedder; this
+    # provider-scoped alias carries the same default so the two never diverge.
+    ollama_embed_model: str = os.getenv("OLLAMA_EMBED_MODEL", "bge-m3")
+
+    # Number of nearest neighbours the (gated) semantic layer pulls from the vector
+    # store before blending their cosine similarity into the curation ranking. Kept
+    # small so semantic recall augments — never floods — the keyword/curation result.
+    semantic_top_k: int = int(os.getenv("SEMANTIC_TOP_K", "5"))
+
 
 config = AppConfig()

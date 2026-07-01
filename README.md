@@ -13,6 +13,7 @@ A FastAPI-based AI companion app with chat, memory, persona management, and a br
 - 🛡️ Safety gate + audit logging
 - ⚡ Redis + observability: Prometheus `/metrics`, per-caller rate limiting, TTS response cache (all gated on `REDIS_URL`)
 - ✅ CI (GitHub Actions) + offline evaluation harness — safety-gate & retrieval scorecard, gating every push
+- 🔎 Semantic memory: pgvector + `bge-m3` embeddings for cross-lingual paraphrase recall (gated; falls back to keyword retrieval)
 
 ## Repository Layout
 
@@ -164,6 +165,12 @@ Common endpoints:
 
 ```bash
 python eval/run_eval.py     # safety-gate + retrieval scorecard -> eval/report.json
+```
+
+**Semantic memory** ([`docs/SEMANTIC_MEMORY.md`](./docs/SEMANTIC_MEMORY.md)) — pgvector + embeddings, gated (inert unless `SEMANTIC_MEMORY_ENABLED=1`), exercised against a real pgvector container in CI. Demo the cross-lingual paraphrase recall (needs ollama `bge-m3`):
+
+```bash
+scripts/demo/semantic_demo.sh   # keyword 0/6 vs semantic 6/6 on paraphrase queries
 ```
 
 ## Troubleshooting
