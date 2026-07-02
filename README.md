@@ -14,6 +14,7 @@ A FastAPI-based AI companion app with chat, memory, persona management, and a br
 - ⚡ Redis + observability: Prometheus `/metrics`, per-caller rate limiting, TTS response cache (all gated on `REDIS_URL`)
 - ✅ CI (GitHub Actions) + offline evaluation harness — safety-gate & retrieval scorecard, gating every push
 - 🔎 Semantic memory: pgvector + `bge-m3` embeddings for cross-lingual paraphrase recall (gated; falls back to keyword retrieval)
+- 📨 Background task queue: RabbitMQ work queue with retries + dead-lettering for memory-curation jobs — strictly outside the realtime voice path (gated on `AMQP_URL`)
 
 ## Repository Layout
 
@@ -124,7 +125,7 @@ Identity and user facts remain available after app/vLLM restarts via durable mem
 
 ### Redis + Observability (Feature 3)
 
-Backend infrastructure on the realtime voice pipeline, each **gated on `REDIS_URL`** — unset ⇒ in-memory sessions, no cache, allow-all rate limit, byte-identical to before (full suite still `141 passed`):
+Backend infrastructure on the realtime voice pipeline, each **gated on `REDIS_URL`** — unset ⇒ in-memory sessions, no cache, allow-all rate limit, byte-identical to before (default suite currently `201 passed / 5 skipped`):
 
 - **TTS response cache** — Redis-cached waveforms; a hit collapses synth to a ~3 ms Redis `GET` (**≥99.7% latency cut**; a sample run: 2231 ms → 2.9 ms, 763×)
 - **Per-caller rate limiting** — atomic Lua token bucket keyed on the **client IP** (not the spoofable `user_id`), fail-open; a 10-request burst yields **5 allowed / 5 rejected**
@@ -139,6 +140,26 @@ scripts/demo/run_demo.sh   # drives traffic, prints the numbers
 ```
 
 Full writeup + captured output: [docs/DEMO.md](./docs/DEMO.md).
+
+The demos also have variants that run against the production LLM stack — vLLM
+serving `Qwen/Qwen3-14B-AWQ` via `LLM_PROVIDER=openai_compat` — instead of the
+ollama convenience default (`serve_vllm.sh`, `semantic_demo_vllm.sh`,
+`run_llm_eval_vllm.sh`); see the vLLM section of [docs/DEMO.md](./docs/DEMO.md).
+
+### Background Task Queue (RabbitMQ)
+
+Non-realtime heavy work (memory curation/dedup/staleness, daily summaries) is
+offloaded to a RabbitMQ work queue consumed by an independent worker process —
+durable exchange, persistent messages, manual ack, QoS prefetch, ≤3 retries, then
+a dead-letter queue. Publisher uses confirms + `mandatory` so unroutable messages
+fail loudly instead of dropping silently. **Gated on `AMQP_URL`** (unset ⇒ no-op),
+and by design the broker never sits inside the realtime VAD→STT→LLM→TTS loop.
+
+```bash
+scripts/demo/queue_demo.sh   # enqueue→consume→ack; poison job retried 3× then dead-lettered
+```
+
+Architecture + failure semantics: [docs/QUEUE.md](./docs/QUEUE.md).
 
 ## API Notes
 
@@ -159,7 +180,7 @@ Common endpoints:
 ~/anaconda3/bin/conda run -n py312 python -m pytest -q
 ```
 
-**CI** runs the suite on every push/PR (`.github/workflows/ci.yml`): a default job (Redis dormant), a Redis-service job that exercises the Redis-gated paths, and a deterministic **eval** job that publishes a scorecard artifact.
+**CI** runs five jobs on every push/PR (`.github/workflows/ci.yml`): a default job with every infra feature dormant, three service-container jobs that run the same suite against a real **Redis**, **RabbitMQ**, and **pgvector** (so the gated paths are exercised end-to-end, not mocked), and a deterministic **eval** job that publishes a scorecard artifact.
 
 **Evaluation harness** ([`eval/`](./eval/README.md)) — an offline, no-LLM scorecard over the safety gate and memory retrieval, plus an optional local LLM-as-judge quality eval:
 
@@ -202,6 +223,12 @@ Planned next-step upgrades:
   - Further optimize STT/TTS end-to-end latency.
   - Improve streaming turn-taking and filler strategy.
   - Add more robust handling for low-volume and mixed-language speech.
+
+- **Backend infra evolution**
+  - LLM tracing (e.g. LangFuse) on top of the Prometheus metrics layer.
+  - Dedicated vector DB (e.g. Milvus) if memory volume outgrows pgvector.
+  - Debounce/sample queue jobs instead of enqueue-per-turn.
+  - Self-hosted GPU runner so CI can gate true voice-path latency.
 
 ## License
 
