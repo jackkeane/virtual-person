@@ -219,6 +219,9 @@ function createPlaceholderRenderer(canvasEl, options = {}) {
     setSpeaking(active) { controller.setSpeaking(active); },
     setBodyMotionScale(scale = 1.0) { controller.setBodyMotionScale(scale); },
     setSpeakingMotion(_opts = {}) { /* placeholder no-op */ },
+    destroy() {
+      try { ctx.clearRect(0, 0, canvasEl.width, canvasEl.height); } catch (_) {}
+    },
     tick(t = performance.now()) {
       controller.tick(t);
       const w = canvasEl.width;
@@ -503,6 +506,13 @@ async function createLive2DRenderer(canvasEl, options = {}) {
       if (Number.isInteger(index) && index >= 0) speakingMotion.index = index;
       if (Number.isFinite(cooldownMs) && cooldownMs > 200) speakingMotion.cooldownMs = cooldownMs;
     },
+    destroy() {
+      try { coreModel.update = originalUpdate; } catch (_) {}
+      try { model.destroy(); } catch (_) {}
+      // Keep the canvas element; the caller must swap in a fresh canvas before
+      // re-initializing (the destroyed WebGL context cannot be reused).
+      try { pixiApp.destroy(false, { children: true, texture: true, baseTexture: true }); } catch (_) {}
+    },
     tick(t = performance.now()) {
       controller.tick(t);
       if (speakingMotion.isSpeaking) {
@@ -517,6 +527,12 @@ async function createLive2DRenderer(canvasEl, options = {}) {
 
 export async function initLive2D(canvasEl, options = {}) {
   if (!canvasEl) throw new Error('initLive2D requires a canvas element');
+
+  // Dispose any previous renderer (avatar switch re-initializes on a fresh canvas)
+  if (runtime?.destroy) {
+    try { runtime.destroy(); } catch (_) {}
+  }
+  runtime = null;
 
   // Try Live2D first, fall back to placeholder
   if (options.live2dEnabled !== false) {

@@ -12,8 +12,17 @@ import {
 import { initLive2D, setExpression, setMouth, setSpeaking, setBodyMotionScale, setSpeakingMotion, tick } from './live2d.js';
 import { UI_CONFIG } from './ui-config.js';
 
-const canvas = document.getElementById('avatarCanvas');
+let canvas = document.getElementById('avatarCanvas');
 const stateEl = document.getElementById('state-indicator');
+
+// --- Avatar registry (switchable Live2D characters) ---
+const LS_ACTIVE_AVATAR = 'ani.activeAvatar';
+const AVATARS = {
+  ani: { label: 'Ani', modelUrl: '/client/assets/models/Hiyori/Hiyori.model3.json' },
+  mika: { label: 'Mika', modelUrl: '/client/assets/models/Mika/model.model3.json' },
+};
+let activeAvatar = localStorage.getItem(LS_ACTIVE_AVATAR);
+if (!AVATARS[activeAvatar]) activeAvatar = 'ani';
 
 const speaking = {
   stateFlag: false,
@@ -169,8 +178,50 @@ function bindAudioPlayback(audioPayload, mimeHint, timeline) {
 }
 
 const avatarConfig = await loadAvatarConfig();
-await initLive2D(canvas, avatarConfig);
+await initLive2D(canvas, { ...avatarConfig, modelUrl: AVATARS[activeAvatar].modelUrl });
 syncSpeakingLayer();
+
+// --- Avatar switch (Ani / Mika) ---
+const avatarTitleEl = document.getElementById('avatarTitle');
+const avatarSwitchBtns = Array.from(document.querySelectorAll('.avatar-btn[data-avatar]'));
+
+function renderAvatarSwitch() {
+  const { label } = AVATARS[activeAvatar];
+  if (avatarTitleEl) avatarTitleEl.textContent = label;
+  document.title = `${label} Avatar MVP`;
+  for (const btn of avatarSwitchBtns) {
+    btn.classList.toggle('active', btn.dataset.avatar === activeAvatar);
+  }
+}
+
+let avatarSwitching = false;
+
+async function switchAvatar(key) {
+  if (!AVATARS[key] || key === activeAvatar || avatarSwitching) return;
+  avatarSwitching = true;
+  activeAvatar = key;
+  localStorage.setItem(LS_ACTIVE_AVATAR, key);
+  renderAvatarSwitch();
+
+  // The old renderer's WebGL context dies with it — re-init on a fresh canvas.
+  const fresh = canvas.cloneNode(false);
+  canvas.replaceWith(fresh);
+  canvas = fresh;
+  try {
+    await initLive2D(canvas, { ...avatarConfig, modelUrl: AVATARS[key].modelUrl });
+  } finally {
+    avatarSwitching = false;
+  }
+  syncSpeakingLayer();
+  // Re-apply persisted motion settings to the new renderer
+  bodyMotionScaleEl?.dispatchEvent(new Event('input'));
+  applySpeakingMotionPresetValue(speakingMotionPreset);
+}
+
+for (const btn of avatarSwitchBtns) {
+  btn.addEventListener('click', () => { switchAvatar(btn.dataset.avatar); });
+}
+renderAvatarSwitch();
 
 const LS_BODY_MOTION_SCALE = 'ani.bodyMotionScale';
 const LS_SPEAKING_MOTION_PRESET = 'ani.speakingMotionPreset';

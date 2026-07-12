@@ -15,6 +15,7 @@ A FastAPI-based AI companion app with chat, memory, persona management, and a br
 - ✅ CI (GitHub Actions) + offline evaluation harness — safety-gate & retrieval scorecard, gating every push
 - 🔎 Semantic memory: pgvector + `bge-m3` embeddings for cross-lingual paraphrase recall (gated; falls back to keyword retrieval)
 - 📨 Background task queue: RabbitMQ work queue with retries + dead-lettering for memory-curation jobs — strictly outside the realtime voice path (gated on `AMQP_URL`)
+- 🎭 Switchable avatars: **Mika**, an original AI-generated Live2D character (ComfyUI art pipeline → auto-rig → Cubism moc3), selectable next to the stock model via a one-click UI toggle
 
 ## Repository Layout
 
@@ -161,6 +162,25 @@ scripts/demo/queue_demo.sh   # enqueue→consume→ack; poison job retried 3× t
 
 Architecture + failure semantics: [docs/QUEUE.md](./docs/QUEUE.md).
 
+### Switchable Avatars — Mika (original character)
+
+The client now ships two Live2D avatars, switchable at runtime from a toggle in the
+header (choice persists in `localStorage`):
+
+- **Ani** — the stock Cubism sample model (Hiyori), as before.
+- **Mika** — an **original character built end-to-end with an AI pipeline**: artwork
+  generated with ComfyUI (identity pinned by seed, reproducible), auto-rigged into a
+  standard **Cubism runtime model** (SDK 4.2 `moc3`, 30 standard parameters, physics
+  for hair/clothing/arm sway, `EyeBlink`/`LipSync` groups wired). Assets live in
+  `client/assets/models/Mika/`.
+
+Because Mika uses the standard Cubism parameter IDs, the existing driving pipeline —
+viseme lip-sync (`ParamMouthOpenY`), auto-blink, cursor gaze, breathing and idle body
+sway — works on her unchanged. Switching tears down the renderer and rebuilds it on a
+fresh canvas (a destroyed WebGL context can't be reused). Honest caveat: Mika ships
+without `motion3` files, so the optional speaking-motion presets are Hiyori-only; her
+speech presence comes from lip-sync + physics + procedural sway.
+
 ## API Notes
 
 Common endpoints:
@@ -204,10 +224,11 @@ scripts/demo/semantic_demo.sh   # keyword 0/6 vs semantic 6/6 on paraphrase quer
 
 Planned next-step upgrades:
 
-- **Original avatar pipeline**
-  - Use assets from `virtual-person-avatar-assets` to build a custom/original avatar.
-  - Replace the current default avatar after rigging, expression mapping, and QA.
-  - Keep compatibility with existing viseme + emotion blend pipeline.
+- **Original avatar pipeline** — ✅ shipped v1: Mika (see *Switchable Avatars* above).
+  Remaining polish:
+  - Motion files (`motion3`) so speaking-motion presets work on Mika too.
+  - Expression variants (mouth-form art, emotion-specific poses).
+  - Higher-res texture atlas from the 4096² master (needs Cubism PRO re-rig).
 
 - **Fine-tuned LLM model**
   - Move from general-purpose base model to a fine-tuned companion model.

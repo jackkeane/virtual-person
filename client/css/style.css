@@ -5,6 +5,12 @@ header h1 { margin:0; font-size:24px; letter-spacing:0.2px; }
 .badge { background:#7c3aed; color:white; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:600; }
 #state-indicator { margin-left:auto; opacity:0.9; font-size:13px; padding:4px 10px; border:1px solid #374151; border-radius:999px; background:#111827; }
 
+.avatar-switch { display:flex; border:1px solid #374151; border-radius:999px; overflow:hidden; }
+.avatar-btn { background:#1f2937; color:#d1d5db; border:none; border-radius:0; padding:4px 14px; font-size:12px; }
+.avatar-btn:hover { background:#374151; }
+.avatar-btn.active { background:#7c3aed; color:#fff; }
+.avatar-btn.active:hover { background:#6d28d9; }
+
 .avatar-panel, .chat-panel { background:#161b22; border:1px solid #2b3340; border-radius:14px; padding:14px; box-shadow:0 6px 24px rgba(0,0,0,0.25); }
 .avatar-panel { text-align:center; }
 #avatarCanvas { width:100%; max-height:480px; background: linear-gradient(135deg, #1a1f2e 0%, #0f1318 100%); border-radius:12px; }
