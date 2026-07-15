@@ -40,6 +40,13 @@ class CosyVoiceTTSService(BaseTTSService):
         self._worker_script = os.path.join(os.path.dirname(__file__), "cosyvoice_worker.py")
         self._proc: _sp.Popen | None = None
         self._warmup_started = False
+        # Guards worker spawn + pipe I/O. The stdin/stdout protocol is strictly
+        # one-request-one-response, and concurrent first calls (init warmup +
+        # filler pre-generate) racing _ensure_worker() each spawn a worker,
+        # leaking a GPU-resident model per loser. RLock because synthesize()
+        # re-enters via _auto_restart()/_ensure_worker(). Same double-checked
+        # locking fix as the pika enqueue path.
+        self._lock = _threading.RLock()
 
         # Pre-warm CosyVoice in background so first user sentence starts faster.
         def _warmup() -> None:
@@ -56,15 +63,18 @@ class CosyVoiceTTSService(BaseTTSService):
     def _ensure_worker(self) -> None:
         if self._proc is not None and self._proc.poll() is None:
             return
-        logging.getLogger("cosyvoice").info("Starting CosyVoice worker process...")
-        env = {**os.environ, "PYTHONNOUSERSITE": "1", "CUDA_VISIBLE_DEVICES": "0"}
-        self._proc = self._subprocess.Popen(
-            [self._worker_python, self._worker_script],
-            stdin=self._subprocess.PIPE,
-            stdout=self._subprocess.PIPE,
-            stderr=self._subprocess.DEVNULL,
-            env=env,
-        )
+        with self._lock:
+            if self._proc is not None and self._proc.poll() is None:
+                return
+            logging.getLogger("cosyvoice").info("Starting CosyVoice worker process...")
+            env = {**os.environ, "PYTHONNOUSERSITE": "1", "CUDA_VISIBLE_DEVICES": "0"}
+            self._proc = self._subprocess.Popen(
+                [self._worker_python, self._worker_script],
+                stdin=self._subprocess.PIPE,
+                stdout=self._subprocess.PIPE,
+                stderr=self._subprocess.DEVNULL,
+                env=env,
+            )
 
     def health_check(self) -> bool:
         alive = bool(self._proc is not None and self._proc.poll() is None)
@@ -101,26 +111,27 @@ class CosyVoiceTTSService(BaseTTSService):
             lang = _detect_lang(text)
             if lang.startswith("zh"):
                 text = _ensure_zh_sentence_end(text)
-            self._auto_restart()
-            self._ensure_worker()
-            assert self._proc and self._proc.stdin and self._proc.stdout
+            with self._lock:
+                self._auto_restart()
+                self._ensure_worker()
+                assert self._proc and self._proc.stdin and self._proc.stdout
 
-            req = _json.dumps({"text": text, "lang": lang}) + "\n"
-            t0 = _time.time()
-            self._proc.stdin.write(req.encode())
-            self._proc.stdin.flush()
+                req = _json.dumps({"text": text, "lang": lang}) + "\n"
+                t0 = _time.time()
+                self._proc.stdin.write(req.encode())
+                self._proc.stdin.flush()
 
-            # Read lines until we get valid JSON (skip tqdm/logging noise)
-            raw_line = b""
-            while True:
-                raw_line = self._proc.stdout.readline()
-                if not raw_line:
-                    self._proc = None
-                    raise RuntimeError("CosyVoice worker returned empty response")
-                raw_line = raw_line.strip()
-                if raw_line.startswith(b"{"):
-                    break
-                log.debug(f"CosyVoice worker noise: {raw_line[:200]}")
+                # Read lines until we get valid JSON (skip tqdm/logging noise)
+                raw_line = b""
+                while True:
+                    raw_line = self._proc.stdout.readline()
+                    if not raw_line:
+                        self._proc = None
+                        raise RuntimeError("CosyVoice worker returned empty response")
+                    raw_line = raw_line.strip()
+                    if raw_line.startswith(b"{"):
+                        break
+                    log.debug(f"CosyVoice worker noise: {raw_line[:200]}")
 
             result = _json.loads(raw_line)
             latency = int((_time.time() - t0) * 1000)
