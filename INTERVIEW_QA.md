@@ -133,6 +133,25 @@ adversarial review before it ever hit the broker, together with three more real
 bugs: missing `mandatory` (silent message loss), a worker exit-code bug, and a
 DLQ-publish-failure path that requeued in a hot loop.
 
+### B4b) Did that concurrency bug class show up anywhere else?
+**Answer:** Yes — the same class (FastAPI threadpool × unlocked lazy init) surfaced
+a second time in the CosyVoice TTS subprocess bridge, this time as a live incident:
+the UI hung on "thinking…" and chat turns timed out at 60 s. Diagnosis chain: vLLM
+logs showed generation collapsed below **1 token/s**; `nvidia-smi` showed
+**23.8/24.5 GB** VRAM at 100% util but only ~113 W — the WSL driver paging GPU
+memory to system RAM; the process list showed **three** `cosyvoice_worker.py`
+subprocesses where there should be one. Root cause: `_ensure_worker()` was an
+unlocked check-then-act — at startup the service's own warmup thread raced the
+filler-audio pre-generation thread, each spawned a worker, and the loser read the
+wrong pipe, got an empty response, reset the handle and spawned a third. Each
+leaked worker held a GPU-resident TTS model, starving vLLM. The fix mirrors the
+pika one: double-checked locking around the spawn, plus the whole stdin/stdout
+exchange serialized under one `RLock` (the pipe protocol is one-request-one-response
+and was never thread-safe). Verified: exactly one worker survives startup, and the
+chat turn went from a **60 s timeout to 0.37 s**. Lesson: review caught one instance
+of this class and production found its twin — lazy init shared across threads
+always needs the lock.
+
 ### B5) The TTS cache claims a 99.7% cut — what's the mechanism?
 **Answer:** TTS synthesis is the expensive tail of a voice turn (~1–2 s). The cache
 keys Redis on `(provider, text)` and stores the synthesized waveform, so a hit
